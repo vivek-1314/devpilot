@@ -52,11 +52,14 @@ If a command is not yet defined, mark it as TODO rather than guessing.
 - `git commit -m "..."` — commit work
 
 ### Project lifecycle
-- `TODO: install dependencies for web app`
-- `TODO: install dependencies for API service`
-- `TODO: run web app locally`
-- `TODO: run API locally`
-- `TODO: run tests`
+- `cd services/api && python3 -m venv .venv`
+- `cd services/api && . .venv/bin/activate && pip install -r requirements.txt`
+- `cd apps/web && npm install`
+- `cd services/api && . .venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --port 8000`
+- `cd apps/web && npm run dev`
+- `cd services/api && . .venv/bin/activate && pytest -q`
+- `cd apps/web && npm run build`
+- `cd /home/vivek-3112/Desktop/pr1 && docker compose up -d postgres`
 - `TODO: run linting`
 - `TODO: run security scans`
 

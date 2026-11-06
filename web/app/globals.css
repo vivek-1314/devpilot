@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+    --background: #0b0b0c;
+    --surface: #111113;
+    --surface-raised: #161618;
+    --foreground: #ededed;
+    --muted: #8b8b92;
+    --subtle: #5c5c63;
+    --border: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --accent: #b4c0ae;
+    --accent-dim: rgba(180, 192, 174, 0.12);
+    --warn: #c9ad84;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+::selection {
+    background: rgba(180, 192, 174, 0.25);
+    color: var(--foreground);
+}
+
+
+
+/* fonts */
+@font-face {
+  font-family: "PamidorFont1";
+  src: url("/fonts/1a4aa50920b5315c-s.p.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+/* Font 2 */
+@font-face {
+  font-family: "PamidorFont2";
+  src: url("/fonts/36966cca54120369-s.p.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+/* Font 3 */
+@font-face {
+  font-family: "PamidorFont3";
+  src: url("/fonts/370fbeb3d5d383fc-s.p.woff2") format("woff2");
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Shared intro title styling */
+.intro-title {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* Choose any font by applying its class */
+.intro-font-1 {
+  font-family: "PamidorFont1", sans-serif;
+}
+
+.intro-font-2 {
+  font-family: "PamidorFont2", sans-serif;
+}
+
+.intro-font-3 {
+  font-family: "PamidorFont3", sans-serif;
+}
+
+/* Intro tagline */
+.intro-tagline {
+  position: absolute;
+  bottom: 9%;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  font-family: "PamidorFont1", sans-serif;
+}
+
+.custom-cursor {
+  cursor: url("/images/cursor.png") 16 16, auto;
+}

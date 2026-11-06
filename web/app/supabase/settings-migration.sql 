@@ -1,0 +1,35 @@
+-- DevPilot: extra database pieces for the Settings page
+-- Run once in Supabase -> SQL Editor.
+
+-- 1. Per-repository "analyze this repo" switch
+alter table public.repositories
+  add column if not exists analyze_enabled boolean not null default true;
+
+-- Users may change ONLY this one column, and only on repos they belong to.
+revoke update on public.repositories from authenticated;
+grant update (analyze_enabled) on public.repositories to authenticated;
+
+create policy "members update analyze flag" on public.repositories
+  for update
+  using (public.is_member(installation_id))
+  with check (public.is_member(installation_id));
+
+-- 2. Notification preferences (one row per user)
+create table if not exists public.user_preferences (
+  user_id             uuid primary key references public.profiles(id) on delete cascade,
+  email_failed_prs    boolean not null default true,
+  email_high_findings boolean not null default true,
+  weekly_summary      boolean not null default false,
+  updated_at          timestamptz not null default now()
+);
+
+alter table public.user_preferences enable row level security;
+
+create policy "read own preferences" on public.user_preferences
+  for select using (user_id = auth.uid());
+
+create policy "insert own preferences" on public.user_preferences
+  for insert with check (user_id = auth.uid());
+
+create policy "update own preferences" on public.user_preferences
+  for update using (user_id = auth.uid()) with check (user_id = auth.uid());

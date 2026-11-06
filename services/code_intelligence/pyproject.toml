@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "code-intelligence"
+version = "0.1.0"
+dependencies = [
+  "pyjwt[crypto]",
+  "httpx",
+  "python-dotenv",
+  "tree-sitter",
+  "tree-sitter-typescript",
+  "tree-sitter-python",
+  "supabase",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
