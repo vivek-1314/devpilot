@@ -1,23 +1,22 @@
-# Decisions
+# Decisions log
 
 ## Decision log
 
 | Date | Decision | Reason |
 | --- | --- | --- |
-| 2026-11-04 | Focus DevPilot on Python backend repositories initially | Matches the product brief and keeps the MVP narrow and production-oriented |
-| 2026-11-04 | Use a modular monolith architecture | Keeps the agent runtime inside the API module without creating extra service complexity early |
-| 2026-11-04 | Use GitHub login and a GitHub App for auth and repo access | Supports user auth and repository-level webhooks and permissions |
-| 2026-11-04 | Use static scanning as the default security model | Prevents execution of untrusted repo code on the host and fits the early product goals |
-| 2026-11-04 | Use PostgreSQL as the primary data store | Suitable for repo metadata, events, and future audit or billing data |
-| 2026-11-04 | Use Docker initially for the sandbox | Provides a practical first step for isolated verification while later hardening is still open |
-| 2026-11-04 | Keep model provider integration behind a small interface | Preserves flexibility without premature abstraction |
+| 2026-11-04 | Keep the initial scope focused on repo intelligence and static analysis | This keeps the MVP reviewable and aligned with a real product need |
+| 2026-11-04 | Use a Next.js frontend and FastAPI backend | This matches the current repo structure and keeps frontend and backend concerns clear |
+| 2026-11-04 | Store repo metadata and graph results in Supabase | This gives the product a practical data layer without adding a separate service early |
+| 2026-11-04 | Use a dedicated Python code-intelligence package | This isolates graph extraction, indexing, and imports from the web and API layers |
+| 2026-11-04 | Prefer static analysis over runtime execution | This reduces risk when analyzing untrusted repository code |
+| 2026-11-04 | Use GitHub App installation patterns for repo access | This fits the GitHub-connected repo intelligence architecture |
+| 2026-11-04 | Keep findings phrased as check results, not absolute safety claims | This prevents overstating certainty when the analysis is limited to static data |
 
 ## Open questions
-- Billing provider: OPEN QUESTION
-- Sandbox technology beyond Docker: OPEN QUESTION
-- Hosting platform: OPEN QUESTION
-- Final production hardening plan for untrusted repo analysis: OPEN QUESTION
-- Long-term observability and worker architecture: OPEN QUESTION
+- final billing model
+- final hosting platform
+- sandbox and automated verification model
+- long-term worker and event orchestration design
 
 ## Notes
-The decision log reflects the current product direction and intentionally leaves uncertain areas open rather than inventing requirements. Future architecture and delivery work should update this log as decisions are confirmed.
+The project remains intentionally conservative in architecture. The team should update this log whenever a choice becomes final or the repo direction changes.

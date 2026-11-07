@@ -12,13 +12,32 @@
  * the edge of the shutter, which lifts away and reveals the page.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+
+const STORAGE_KEY = "devpilot:boot-seen";
+
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+const hasSeen = (key: string) => {
+  try {
+    return window.localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+};
+
+const markSeen = (key: string) => {
+  try {
+    window.localStorage.setItem(key, "1");
+  } catch { }
+};
 
 type Phase = "loading" | "ready" | "exit" | "gone";
 
 interface BootLoaderProps {
   duration?: number;
   onComplete?: () => void;
+  storageKey?: string;
 }
 
 interface Row {
@@ -59,7 +78,11 @@ function makeRows(count: number): Row[] {
   });
 }
 
-export default function BootLoader({ duration = 4600, onComplete }: BootLoaderProps) {
+export default function BootLoader({
+  duration = 4600,
+  onComplete,
+  storageKey = STORAGE_KEY,
+}: BootLoaderProps) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [percent, setPercent] = useState(0);
   const [mounted, setMounted] = useState(false);
@@ -68,6 +91,18 @@ export default function BootLoader({ duration = 4600, onComplete }: BootLoaderPr
   const progressRef = useRef(0);
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
+
+  // ⬇ add here
+  const skippedRef = useRef(false);
+
+  useIsoLayoutEffect(() => {
+    if (hasSeen(storageKey)) {
+      skippedRef.current = true;
+      markSeen(storageKey);
+      setPhase("gone");
+      onCompleteRef.current?.();
+    }
+  }, [storageKey]);
 
   useEffect(() => {
     const id = window.setTimeout(() => setMounted(true), 80);
@@ -81,10 +116,11 @@ export default function BootLoader({ duration = 4600, onComplete }: BootLoaderPr
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [phase]);
+  }, [phase, storageKey]);
 
   /* progress */
   useEffect(() => {
+    if (skippedRef.current) return;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const total = reduced ? 1200 : duration;
     const start = performance.now();
@@ -118,6 +154,7 @@ export default function BootLoader({ duration = 4600, onComplete }: BootLoaderPr
 
   /* code field and beam */
   useEffect(() => {
+    if (skippedRef.current) return;
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;

@@ -9,6 +9,8 @@
     "dependencies": {
         "@supabase/ssr": "^0.12.7",
         "@supabase/supabase-js": "^2.119.0",
+        "cytoscape": "^3.34.4",
+        "cytoscape-fcose": "^2.2.0",
         "next": "14.2.15",
         "octokit": "^5.0.5",
         "react": "18.3.1",

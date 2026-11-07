@@ -1,10 +1,10 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.db import get_db
-from app.graph.extractor import extract_symbols
-from app.graph.imports import ImportEdge, extract_imports
-from app.graph.walker import walk_repo
+from services.db import get_db
+from services.code_intelligence.graph.extractor import extract_symbols
+from services.code_intelligence.graph.imports import ImportEdge, extract_imports
+from services.code_intelligence.graph.walker import walk_repo
 
 BATCH = 500
 
@@ -54,6 +54,8 @@ def save_graph(repo_id: int, sha: str, nodes: list[dict], edges: list[ImportEdge
 
     rows = [{**n, "repo_id": repo_id, "commit_sha": sha} for n in nodes]
     id_by_qname: dict[str, int] = {}
+    # (file path, function/class name) -> node id, used to point "calls" edges at the function
+    id_by_sym: dict[tuple[str, str], int] = {}
     for i in range(0, len(rows), BATCH):
         res = (
             db.table("code_nodes")
@@ -62,6 +64,8 @@ def save_graph(repo_id: int, sha: str, nodes: list[dict], edges: list[ImportEdge
         )
         for r in res.data:
             id_by_qname[r["qualified_name"]] = r["id"]
+            if r.get("kind") != "file":
+                id_by_sym.setdefault((r["path"], r["name"]), r["id"])
 
     db.table("code_nodes").delete().eq("repo_id", repo_id).neq("commit_sha", sha).execute()
 
@@ -71,6 +75,24 @@ def save_graph(repo_id: int, sha: str, nodes: list[dict], edges: list[ImportEdge
         from_id = id_by_qname.get(e.from_path)
         if from_id is None:
             continue
+
+        if e.kind == "calls":
+            # file -> the function/class it uses in another file
+            to_id = id_by_sym.get((e.to_path, e.target_name))
+            if to_id is None:
+                continue  # the used name is not a function/class we indexed
+            edge_rows.append(
+                {
+                    "repo_id": repo_id,
+                    "from_node_id": from_id,
+                    "to_node_id": to_id,
+                    "target_name": e.target_name,
+                    "kind": "calls",
+                    "commit_sha": sha,
+                }
+            )
+            continue
+
         to_id = id_by_qname.get(e.to_path) if e.to_path else None
         if to_id is None and not e.target_name:
             continue

@@ -1,80 +1,43 @@
-# Product
+# Product overview
 
-## Vision
-DevPilot is a SaaS that connects to a developer's GitHub repositories and builds a graph/tree view of the codebase. It helps developers understand what a repo does, what technologies it uses, where the risky areas are, and whether a pull request is ready to merge.
+## Product vision
+DevPilot is a repository intelligence product for GitHub repos. It gives engineering teams a clearer view of what a codebase does, how it is structured, where the risk areas live, and whether a PR is likely to introduce issues before merge.
 
-The initial focus is Python backend repositories. The product is designed for developers and small engineering teams who want repository intelligence without needing to read every file manually.
+## Primary users
+- independent developers maintaining their own backend projects
+- small teams with several repos and shared review cycles
+- maintainers who need an at-a-glance repo summary before reading code deeply
+- reviewers who want better pre-merge signal without manual repo exploration
 
-## Target users
-- Solo developers maintaining their own Python backend projects
-- Small teams with multiple services and shared repositories
-- Engineers who want a quick understanding of repo structure and health
-- Teams that want lightweight PR validation and risk detection before merge
+## Current product focus
+The active product scope is intentionally narrow and practical:
 
-## Problems solved
-- Repos are hard to understand without reading a large number of files
-- Dependency and import relationships are not obvious in large repos
-- Tech stack detection is manual and error-prone
-- Security and code quality issues may be missed during review
-- Pull requests can merge with avoidable CI or quality failures
-- Teams need a fast, structured summary of what a repo is doing
+- repo indexing and graph extraction
+- file and symbol visibility
+- static import relationship mapping
+- GitHub repo connection and installation flow
+- security and quality reporting in a dashboard
 
-## Tiers
-### Free
-- Connect a repository
-- File tree and dependency graph
-- Detected tech stack
-- AI summary of repository purpose
-- Basic quality and secret scanning
+## Problems addressed
+- repo structure is hard to understand without reading many files
+- module and dependency relationships are not obvious in large repos
+- stack and project intent are often inferred manually
+- code quality and security issues can be missed during quick review
+- PR review benefits from repository context and static signal
 
-### Paid
-- Webhooks
-- PR monitoring
-- Pre-flight checks
-- CI failure tracking
-- Repo health insights
-- Event history
+## Milestone status
+The current repo already includes:
+- dashboard pages and project shell
+- an API gateway for repository intelligence requests
+- a Python graph/indexing package
+- repo metadata integration through Supabase
+- GitHub App installation plumbing
 
-### Top tier
-- Failed-PR analysis
-- Patch generation
-- Sandbox verification
-- PR creation with human approval
-
-## Core workflows
-### 1. Analyze a repository
-The user connects a repo or imports a local repo. DevPilot inspects the repository tree, parses imports and relationships, and extracts the detected stack.
-
-### 2. Summarize repository intent
-The platform produces a concise explanation of what the project appears to do based on the repository structure, dependencies, and code signals.
-
-### 3. Run static quality and security checks
-DevPilot runs static checks such as Ruff, Bandit, and Gitleaks to surface issues without executing the repository code.
-
-### 4. Validate pull requests
-Before merge, DevPilot can run a pre-flight check for likely issues and surface CI or repo health concerns.
-
-### 5. Monitor repo events
-For paid plans, the system tracks PR lifecycle events, CI statuses, and merge-related signals via webhooks.
-
-### 6. Repair and verify in advanced tiers
-Advanced flows focus on failed PR analysis, patch generation, sandbox verification, and creation of a follow-up PR for human approval.
-
-## MVP scope
-The MVP is intentionally narrow and production-oriented:
-- scan a repo
-- show the file tree
-- show a dependency/import graph
-- detect the tech stack
-- summarize the repo
-- run quality and security scanning
-
-This MVP does not include final billing, full autonomous repair, or broad multi-language support. Those remain later phases.
+This means the product has moved past pure planning into an initial implementation stage.
 
 ## Product principles
-- Production-oriented and security-first
-- Static analysis only for early scanning
-- No execution of untrusted repo code on the host
-- Findings are worded as "no issues found by these checks" rather than "safe"
-- Keep usage limits and permissions explicit
-- Keep unknowns as OPEN QUESTION until confirmed
+- prioritize static, secure analysis over dynamic execution
+- keep the initial scope small and reviewable
+- avoid broad claims like "safe" or "secure" based on limited checks
+- make repo permissions and usage boundaries explicit
+- favor clarity and operational safety over speculative automation

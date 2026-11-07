@@ -4,7 +4,9 @@ load_dotenv()
 
 from fastapi import FastAPI
 
-from gateway.routes.code_intelligence import router as code_intelligence_router
+from services.api.routes.code_intelligence_route import router as code_intelligence_router
+from services.api.routes.quality_route import router as quality_router
+
 
 app = FastAPI(title="DevPilot API")
 
@@ -15,3 +17,4 @@ def health():
 
 
 app.include_router(code_intelligence_router)
+app.include_router(quality_router)

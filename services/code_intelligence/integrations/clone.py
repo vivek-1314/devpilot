@@ -5,7 +5,7 @@ import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from app.integrations.github import get_installation_token
+from services.code_intelligence.integrations.github import get_installation_token
 
 
 async def _run(*args: str, cwd: str | None = None, timeout: int = 120) -> str:

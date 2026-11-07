@@ -1,61 +1,74 @@
 # Roadmap
 
-## Milestone 1: Walking skeleton
-Create the initial repository scaffold and the project boundaries for web, API, docs, and workflow placeholders.
+## Current state
+The repo has already progressed beyond the initial walking skeleton. The active implementation includes:
 
-Goals:
-- confirm repo structure
-- define product and engineering guardrails
-- establish docs and project conventions
+- a dashboard UI in the web app
+- a FastAPI gateway with code intelligence routes
+- a Python graph/indexing engine for repo analysis
+- Supabase-backed auth and metadata workflows
+- GitHub App installation plumbing
 
-## Milestone 2: Scan a local repo (tree and imports)
-Support analysis of a local repository and extract:
-- file tree
-- import relationships
-- module-level structure
+## Milestone 1: repo foundation and structure
+Status: complete
 
-This is the first working representation of repo intelligence.
+Completed work:
+- web app scaffold and dashboard shell
+- API gateway and route structure
+- code-intelligence package layout
+- docs and project guardrails
 
-## Milestone 3: Graph view
-Build a graph or tree-based view of repository relationships. This should show how modules connect and where the main project boundaries are.
+## Milestone 2: repository indexing and graph extraction
+Status: in progress
 
-Goals:
-- improve understanding of repo structure
-- support dependency and code relationship visualization
+Goal:
+- walk a repo and enumerate files
+- extract imports and symbol relationships
+- persist graph data for a repo and return it through the API
 
-## Milestone 4: Stack detection and summary
-Detect the repository's likely tech stack and generate a short summary of the project purpose.
+The repo already includes the core graph indexing flow and the `code_nodes` / `code_edges` model pattern.
 
-Goals:
-- identify Python frameworks, tooling, and runtime signals
-- explain what the repo appears to do
+## Milestone 3: repo intelligence dashboard
+Status: in progress
 
-## Milestone 5: Security and quality scan
-Run static checks for quality and security, including:
+Goal:
+- show repository health and analysis state
+- wire repo metadata to the dashboard
+- expose API-driven graph and findings data in the UI
+
+## Milestone 4: static security and quality checks
+Status: planned
+
+Planned checks may include:
 - Ruff
 - Bandit
 - Gitleaks
 
-The output should be reported as findings from the selected checks, without claiming the repo is safe or secure.
+This should remain a static-analysis layer and should never be communicated as a guarantee of safety.
 
-## Milestone 6: GitHub login and GitHub App
-Integrate GitHub login for users and GitHub App support for repo access and webhook delivery.
+## Milestone 5: GitHub integration cleanup and production hardening
+Status: planned
 
-Goals:
-- authenticate users
-- connect repositories securely
-- subscribe to repo events
+Goal:
+- finalize installation and repo linking flows
+- define explicit permission boundaries
+- tighten the environment and secret handling process
 
-## Milestone 7: Pre-flight, webhooks, sandbox, and auto-fix
-Deliver the operational automation layer:
-- pre-flight checks for pull requests
-- webhook-driven monitoring
-- sandbox-based validation
-- auto-fix flow for failed PR analysis
+## Milestone 6: PR automation and review support
+Status: planned
 
-This is the phase that expands DevPilot from analysis into actionable PR support, with human approval required for final PR creation.
+Goal:
+- pre-flight checks for PRs
+- webhook-based monitoring
+- repo event awareness
+- human approval gates for automation
+
+## Milestone 7: sandbox and verification
+Status: deferred
+
+This stage is intentionally later and should only happen once the static-analysis foundation is stable and the security boundaries are explicit.
 
 ## Notes
-- The roadmap intentionally follows the product direction in the README and AGENTS guidance.
-- Uncertain implementation details remain OPEN QUESTION until confirmed.
-- Later phases such as billing, observability, and VS Code extension remain out of scope for this roadmap stage.
+- the roadmap is intentionally scoped to the current repo and implementation state
+- open questions still remain around hosting, billing, and sandbox design
+- multi-language support and full autonomous PR repair remain out of scope for the current milestone set

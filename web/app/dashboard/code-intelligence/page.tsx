@@ -23,13 +23,13 @@ type CNode = {
   start_line: number | null;
   end_line: number | null;
   signature: string | null;
-  external_imports?: string[] | null; // present once external imports move to jsonb
+  external_imports?: string[] | null;
 };
+// kind "imports": file -> file (or package). kind "calls": file -> function/class in another file.
 type CEdge = { id: Id; from_node_id: Id; to_node_id: Id | null; target_name: string | null; kind: string };
 type Graph = { nodes: CNode[]; edges: CEdge[] };
 type Repo = { id: number; full_name: string; language: string | null; index_status: string | null; last_indexed_at: string | null };
 
-const MAX_FILES_DRAWN = 150;
 const MAX_RESULTS = 100;
 
 /* =====================================================================
@@ -90,19 +90,44 @@ function ago(iso: string) {
 
 const base = (p: string) => p.split("/").pop() ?? p;
 const label = (n: CNode) => (n.kind === "file" ? base(n.path) : n.name);
+/** "src/lib/api.ts" -> "src/lib" ; "page.tsx" -> "" */
+const dirOf = (p: string) => p.slice(0, Math.max(0, p.lastIndexOf("/")));
+/** "src/lib/api.ts" -> ["src", "src/lib"] */
+function ancestorsOf(path: string) {
+  const parts = path.split("/");
+  parts.pop();
+  const out: string[] = [];
+  let d = "";
+  for (const s of parts) {
+    d = d ? `${d}/${s}` : s;
+    out.push(d);
+  }
+  return out;
+}
 
 function buildModel(g: Graph) {
   const files = g.nodes.filter((n) => n.kind === "file");
   const symbols = g.nodes.filter((n) => n.kind !== "file");
   const fileById = new Map(files.map((f) => [f.id, f]));
   const fileByPath = new Map(files.map((f) => [f.path, f]));
+  const symbolById = new Map(symbols.map((s) => [s.id, s]));
   const imports = new Map<Id, Id[]>();
   const importedBy = new Map<Id, Id[]>();
   const packages = new Map<Id, Set<string>>();
   const symbolsByPath = new Map<string, CNode[]>();
+  /** "fromFileId>toFileId" -> names of the functions/classes the first file uses from the second */
+  const calls = new Map<string, Set<string>>();
   const seen = new Set<string>();
 
   for (const e of g.edges) {
+    if (e.kind === "calls") {
+      const sym = e.to_node_id != null ? symbolById.get(e.to_node_id) : undefined;
+      const target = sym ? fileByPath.get(sym.path) : undefined;
+      if (!sym || !target || !fileById.has(e.from_node_id)) continue;
+      const key = `${e.from_node_id}>${target.id}`;
+      (calls.get(key) ?? calls.set(key, new Set()).get(key)!).add(sym.name);
+      continue;
+    }
     if (e.to_node_id != null) {
       if (!fileById.has(e.from_node_id) || !fileById.has(e.to_node_id)) continue;
       const key = `${e.from_node_id}>${e.to_node_id}`;
@@ -118,18 +143,46 @@ function buildModel(g: Graph) {
   for (const s of symbols) push(symbolsByPath, s.path, s);
   for (const list of symbolsByPath.values()) list.sort((a, b) => (a.start_line ?? 0) - (b.start_line ?? 0));
 
+  // Folders come straight from file paths, so no backend change is needed for them.
+  const dirs = new Set<string>();
+  const fileCount = new Map<string, number>(); // folder -> files inside it (any depth)
+  for (const f of files) {
+    for (const d of ancestorsOf(f.path)) {
+      dirs.add(d);
+      fileCount.set(d, (fileCount.get(d) ?? 0) + 1);
+    }
+  }
+
+  // One color per top-level folder so each area of the repo is easy to tell apart.
+  const tops = new Map<string, number>();
+  for (const d of [...dirs].filter((d) => !d.includes("/")).sort()) tops.set(d, tops.size);
+
   const degree = (id: Id) => (imports.get(id)?.length ?? 0) + (importedBy.get(id)?.length ?? 0);
   const ranked = [...files].sort((a, b) => degree(b.id) - degree(a.id));
-  const visible = ranked.slice(0, MAX_FILES_DRAWN);
-  const visibleIds = new Set(visible.map((f) => f.id));
-  const links: [Id, Id][] = [];
-  for (const [from, tos] of imports) for (const to of tos) if (visibleIds.has(from) && visibleIds.has(to)) links.push([from, to]);
-
   const counts = { files: files.length, symbols: symbols.length, imports: seen.size, packages: new Set([...packages.values()].flatMap((s) => [...s])).size };
 
-  return { files, symbols, fileById, fileByPath, imports, importedBy, packages, symbolsByPath, ranked, visible, links, counts, all: g.nodes };
+  return { files, symbols, fileById, fileByPath, imports, importedBy, packages, symbolsByPath, calls, dirs, fileCount, tops, degree, ranked, counts, all: g.nodes };
 }
 type Model = ReturnType<typeof buildModel>;
+
+/* =====================================================================
+   Look and feel. One accent (indigo) for selection and interaction.
+   Folder hues are chosen to stay away from indigo/violet so a selected
+   file never blends into its folder color.
+   ===================================================================== */
+
+const ACCENT = "#818CF8";
+const SURFACE = "#0a0a0f";
+const FONT_MONO = '"JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace';
+const FONT_SANS = 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+
+// cyan, emerald, amber, pink, lime, coral, teal, yellow
+const PALETTE = [190, 152, 38, 332, 100, 12, 172, 58];
+function colorOf(model: Model, pathOrDir: string, isDir: boolean) {
+  const top = !isDir && !pathOrDir.includes("/") ? null : pathOrDir.split("/")[0];
+  const i = top == null ? undefined : model.tops.get(top);
+  return i == null ? "#a1a1aa" : `hsl(${PALETTE[i % PALETTE.length]}, 62%, 66%)`;
+}
 
 /** Files that would be affected if `id` changed: everything that imports it, directly or through other files. */
 function impactOf(model: Model, id: Id | null) {
@@ -150,55 +203,81 @@ function impactOf(model: Model, id: Id | null) {
   return hit;
 }
 
-/** Fruchterman-Reingold, fixed iterations, deterministic start. */
-function layout(ids: Id[], links: [Id, Id][], w: number, h: number) {
-  const n = ids.length;
-  const pad = 44;
-  const idx = new Map(ids.map((id, i) => [id, i]));
-  const x = new Float64Array(n);
-  const y = new Float64Array(n);
-  const r0 = Math.min(w, h) * 0.38;
-  ids.forEach((_, i) => {
-    const a = (i / Math.max(n, 1)) * Math.PI * 2;
-    x[i] = w / 2 + Math.cos(a) * r0;
-    y[i] = h / 2 + Math.sin(a) * r0;
-  });
-  if (n > 1) {
-    const k = Math.sqrt((w * h) / n) * 0.85;
-    const edges = links.map(([a, b]) => [idx.get(a)!, idx.get(b)!] as const);
-    const dx = new Float64Array(n);
-    const dy = new Float64Array(n);
-    const iters = 250;
-    for (let it = 0; it < iters; it++) {
-      const t = (w / 8) * (1 - it / iters) + 0.5;
-      dx.fill(0);
-      dy.fill(0);
-      for (let i = 0; i < n; i++) {
-        for (let j = i + 1; j < n; j++) {
-          const ex = x[i] - x[j];
-          const ey = y[i] - y[j];
-          const d = Math.max(Math.hypot(ex, ey), 0.01);
-          const f = (k * k) / (d * d);
-          dx[i] += ex * f; dy[i] += ey * f; dx[j] -= ex * f; dy[j] -= ey * f;
-        }
-        dx[i] += (w / 2 - x[i]) * 0.02;
-        dy[i] += (h / 2 - y[i]) * 0.02;
-      }
-      for (const [a, b] of edges) {
-        const ex = x[a] - x[b];
-        const ey = y[a] - y[b];
-        const f = Math.max(Math.hypot(ex, ey), 0.01) / k;
-        dx[a] -= ex * f; dy[a] -= ey * f; dx[b] += ex * f; dy[b] += ey * f;
-      }
-      for (let i = 0; i < n; i++) {
-        const d = Math.max(Math.hypot(dx[i], dy[i]), 0.01);
-        const m = Math.min(d, t);
-        x[i] = Math.min(w - pad, Math.max(pad, x[i] + (dx[i] / d) * m));
-        y[i] = Math.min(h - pad, Math.max(pad, y[i] + (dy[i] / d) * m));
-      }
+/* =====================================================================
+   Folder view: which folders are open, and what the graph draws for that.
+   An open folder is a box around its children. A closed folder is one
+   node that stands in for every file inside it.
+   ===================================================================== */
+
+/** Small repos start fully open. Big ones start with only top-level folders open. */
+function initialOpen(model: Model) {
+  if (model.files.length <= 80) return new Set(model.dirs);
+  return new Set([...model.dirs].filter((d) => !d.includes("/")));
+}
+
+/** The graph node that stands for this file right now: the file itself, or the first closed folder above it. */
+function repFor(f: CNode, open: Set<string>) {
+  for (const d of ancestorsOf(f.path)) if (!open.has(d)) return `d:${d}`;
+  return `f:${f.id}`;
+}
+
+function buildElements(model: Model, open: Set<string>) {
+  const nodes: any[] = [];
+  const edges: any[] = [];
+
+  for (const d of model.dirs) {
+    const parent = dirOf(d);
+    const anc = ancestorsOf(d + "/x"); // folders from the top down to d itself
+    if (!anc.slice(0, -1).every((a) => open.has(a))) continue; // hidden inside a closed folder
+    const n = model.fileCount.get(d) ?? 0;
+    nodes.push({
+      group: "nodes",
+      data: {
+        id: `d:${d}`,
+        kind: "folder",
+        dir: d,
+        open: open.has(d),
+        label: open.has(d) ? base(d) : `${base(d)} · ${n}`,
+        color: colorOf(model, d, true),
+        path: d,
+        n,
+        ...(parent ? { parent: `d:${parent}` } : {}),
+      },
+    });
+  }
+
+  for (const f of model.files) {
+    const dir = dirOf(f.path);
+    if (!ancestorsOf(f.path).every((a) => open.has(a))) continue;
+    nodes.push({
+      group: "nodes",
+      data: { id: `f:${f.id}`, kind: "file", fid: f.id, label: base(f.path), deg: model.degree(f.id), color: colorOf(model, f.path, false), path: f.path, ...(dir ? { parent: `d:${dir}` } : {}) },
+    });
+  }
+
+  const agg = new Map<string, { source: string; target: string; count: number; why: Set<string> }>();
+  for (const [from, tos] of model.imports) {
+    const a = model.fileById.get(from)!;
+    for (const to of tos) {
+      const b = model.fileById.get(to)!;
+      const s = repFor(a, open);
+      const t = repFor(b, open);
+      if (s === t) continue;
+      const key = `${s}>${t}`;
+      const cur = agg.get(key) ?? agg.set(key, { source: s, target: t, count: 0, why: new Set() }).get(key)!;
+      cur.count++;
+      for (const name of model.calls.get(`${from}>${to}`) ?? []) cur.why.add(name);
     }
   }
-  return new Map(ids.map((id, i) => [id, { x: x[i], y: y[i] }]));
+  for (const [key, e] of agg) {
+    const names = [...e.why];
+    const text = names.join(", ");
+    edges.push({
+      group: "edges",
+      data: { id: key, source: e.source, target: e.target, count: e.count, why: text.length > 70 ? text.slice(0, 68) + "…" : text, full: text },
+    });
+  }
+  return [...nodes, ...edges];
 }
 
 /* =====================================================================
@@ -206,7 +285,9 @@ function layout(ids: Id[], links: [Id, Id][], w: number, h: number) {
    ===================================================================== */
 
 const inputCls =
-  "rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm outline-none transition-colors placeholder:text-white/30 focus:border-[#FF4D1C]/60";
+  "rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm text-white/90 outline-none transition-all placeholder:text-white/30 focus:border-[#818CF8]/70 focus:bg-white/[0.06] focus:ring-4 focus:ring-[#818CF8]/10";
+
+const sectionCls = "mt-6 text-[11px] font-medium uppercase tracking-[0.14em] text-white/40";
 
 function Chip({ active, onClick, children, title }: { active?: boolean; onClick: () => void; children: React.ReactNode; title?: string }) {
   return (
@@ -216,8 +297,8 @@ function Chip({ active, onClick, children, title }: { active?: boolean; onClick:
       onClick={onClick}
       aria-pressed={active}
       className={cx(
-        "rounded-full border px-2.5 py-0.5 text-xs transition-colors hover:border-[#FF4D1C]/50 hover:text-white",
-        active ? "border-[#FF4D1C]/60 text-white" : "border-white/10 text-white/70",
+        "rounded-full border px-3 py-1 text-xs font-medium transition-all hover:border-[#818CF8]/60 hover:text-white",
+        active ? "border-[#818CF8]/60 bg-[#818CF8]/15 text-white" : "border-white/10 bg-white/[0.03] text-white/65",
       )}
     >
       {children}
@@ -228,39 +309,42 @@ function Chip({ active, onClick, children, title }: { active?: boolean; onClick:
 function Stat({ value, name }: { value: number; name: string }) {
   return (
     <div>
-      <p className="text-xl tabular-nums">{value.toLocaleString()}</p>
-      <p className="text-xs text-white/40">{name}</p>
+      <p className="text-2xl font-semibold tabular-nums tracking-tight text-white">{value.toLocaleString()}</p>
+      <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.12em] text-white/40">{name}</p>
     </div>
   );
 }
 
 /* =====================================================================
-   Feature 1: code graph (drag, zoom, full screen, and trace what a change touches)
+   Feature 1: code graph (folders, files, and why files are connected)
    ===================================================================== */
 
-type P = { x: number; y: number };
-type View = { k: number; tx: number; ty: number };
-
-const LW = 1000; // logical size the automatic layout is computed in
-const LH = 700;
-const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
-const short = (s: string) => (s.length > 24 ? s.slice(0, 22) + "…" : s);
-
-/** Zoom by factor f while keeping the point (cx, cy) fixed on screen. */
-function zoomAt(v: View, f: number, cx: number, cy: number): View {
-  const k = clamp(v.k * f, 0.4, 5);
-  const r = k / v.k;
-  return { k, tx: cx - (cx - v.tx) * r, ty: cy - (cy - v.ty) * r };
-}
-
 const toolBtn =
-  "rounded-md border border-white/10 bg-black/50 px-2.5 py-1 text-xs text-white/75 backdrop-blur transition-colors hover:border-[#FF4D1C]/50 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white";
+  "rounded-lg border border-white/10 bg-[#0a0a0f]/80 px-3 py-1.5 text-xs font-medium text-white/70 backdrop-blur transition-all hover:border-[#818CF8]/60 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#818CF8]";
+
+// Cytoscape styles. Colors are plain strings because the canvas cannot read Tailwind classes.
+const GRAPH_STYLE: any[] = [
+  { selector: "node", style: { label: "data(label)", color: "rgba(244,244,247,0.85)", "font-size": 11, "font-family": FONT_MONO, "font-weight": 500, "text-valign": "bottom", "text-margin-y": 6, "text-wrap": "ellipsis", "text-max-width": "120px", "text-outline-color": SURFACE, "text-outline-width": 3, "min-zoomed-font-size": 8 } },
+  { selector: 'node[kind="file"]', style: { "background-color": "data(color)", "background-opacity": 1, width: "mapData(deg, 0, 15, 14, 34)", height: "mapData(deg, 0, 15, 14, 34)", "border-width": 2, "border-color": SURFACE } },
+  { selector: 'node[kind="folder"]', style: { shape: "round-rectangle", "background-color": "data(color)", "background-opacity": 0.05, "border-width": 1.5, "border-color": "data(color)", "border-opacity": 0.35, "text-valign": "top", "text-margin-y": -7, padding: "24px", "font-family": FONT_SANS, "font-size": 12, "font-weight": 600, color: "data(color)", "text-max-width": "200px" } },
+  { selector: 'node[kind="folder"][!open]', style: { width: 56, height: 34, padding: "0px", "background-opacity": 0.2, "border-opacity": 0.85, "text-valign": "bottom", "text-margin-y": 7 } },
+  { selector: "edge", style: { width: "mapData(count, 1, 8, 1.2, 3.5)", "line-color": "rgba(255,255,255,0.16)", "target-arrow-color": "rgba(255,255,255,0.32)", "target-arrow-shape": "triangle", "arrow-scale": 0.9, "curve-style": "bezier", "control-point-step-size": 36, "overlay-padding": "5px", "overlay-opacity": 0 } },
+  { selector: ".dim", style: { opacity: 0.15 } },
+  { selector: ".peek", style: { opacity: 1 } },
+  { selector: "edge.peek", style: { "line-color": "rgba(255,255,255,0.75)", "target-arrow-color": "rgba(255,255,255,0.9)", "z-index": 15 } },
+  { selector: "node.hot", style: { "border-color": ACCENT, "border-width": 3, "border-opacity": 1 } },
+  { selector: "node.sel", style: { "background-color": ACCENT, "border-color": "#ffffff", "border-width": 2.5, "border-opacity": 1, color: "#ffffff", "overlay-color": ACCENT, "overlay-opacity": 0.2, "overlay-padding": "10px" } },
+  { selector: "edge.hot", style: { "line-color": ACCENT, "target-arrow-color": ACCENT, width: 2.2, "z-index": 10 } },
+  { selector: "edge.direct", style: { width: 2.6, "z-index": 20 } },
+];
+
+let fcoseRegistered = false;
 
 function Details({ model, node, impact, setSel, className }: { model: Model; node: CNode | undefined; impact: Map<Id, number>; setSel: (id: Id) => void; className?: string }) {
   if (!node) {
     return (
-      <Card className={cx("p-5", className)}>
-        <p className="text-sm text-white/50">Select a file to see what it imports and what depends on it.</p>
+      <Card className={cx("p-6", className)}>
+        <p className="text-sm leading-relaxed text-white/50">Select a file to see what it imports, what depends on it, and which functions connect them.</p>
       </Card>
     );
   }
@@ -269,50 +353,55 @@ function Details({ model, node, impact, setSel, className }: { model: Model; nod
   const pkgs = [...(model.packages.get(node.id) ?? [])].sort();
   const symbols = model.symbolsByPath.get(node.path) ?? [];
 
-  const chips = (ids: Id[]) =>
+  const rows = (ids: Id[], dir: "out" | "in") =>
     ids.length === 0 ? (
-      <span className="text-sm text-white/40">None</span>
+      <span className="text-sm text-white/35">None</span>
     ) : (
-      <div className="flex flex-wrap gap-2">
+      <ul className="space-y-2">
         {ids.map((id) => {
           const f = model.fileById.get(id);
-          return f ? (
-            <Chip key={id} title={f.path} onClick={() => setSel(id)}>
-              {base(f.path)}
-            </Chip>
-          ) : null;
+          if (!f) return null;
+          const names = [...(model.calls.get(dir === "out" ? `${node.id}>${id}` : `${id}>${node.id}`) ?? [])];
+          return (
+            <li key={id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <Chip title={f.path} onClick={() => setSel(id)}>
+                {base(f.path)}
+              </Chip>
+              {names.length > 0 && <span className="font-mono text-xs text-[#818CF8]/80">via {names.join(", ")}</span>}
+            </li>
+          );
         })}
-      </div>
+      </ul>
     );
 
   return (
-    <Card key={String(node.id)} className={cx("dp-fade p-5", className)}>
-      <h2 className="text-lg">{base(node.path)}</h2>
-      <p className="mt-1 break-all font-mono text-xs text-white/50">{node.path}</p>
+    <Card key={String(node.id)} className={cx("dp-fade p-6", className)}>
+      <h2 className="text-xl font-semibold tracking-tight text-white">{base(node.path)}</h2>
+      <p className="mt-1.5 break-all font-mono text-xs text-white/45">{node.path}</p>
 
-      <p className="mt-4 rounded-md border border-white/10 px-3 py-2 text-sm text-white/70">
-        {impact.size === 0 ? "No other file depends on this one." : <>Changing this file can affect <span className="text-white">{impact.size}</span> other {impact.size === 1 ? "file" : "files"}.</>}
+      <p className="mt-5 rounded-lg border border-[#818CF8]/25 bg-[#818CF8]/[0.08] px-3.5 py-2.5 text-sm leading-relaxed text-white/75">
+        {impact.size === 0 ? "No other file depends on this one." : <>Changing this file can affect <span className="font-semibold text-white">{impact.size}</span> other {impact.size === 1 ? "file" : "files"}.</>}
       </p>
 
-      <h3 className="mt-5 text-sm font-medium">Imports</h3>
-      <div className="mt-2">{chips(imports)}</div>
-      <h3 className="mt-5 text-sm font-medium">Imported by</h3>
-      <div className="mt-2">{chips(importedBy)}</div>
-      <h3 className="mt-5 text-sm font-medium">Packages</h3>
-      <div className="mt-2">
-        {pkgs.length === 0 ? <span className="text-sm text-white/40">None</span> : <div className="flex flex-wrap gap-2">{pkgs.map((p) => <Badge key={p}>{p}</Badge>)}</div>}
+      <h3 className={sectionCls}>Imports</h3>
+      <div className="mt-2.5">{rows(imports, "out")}</div>
+      <h3 className={sectionCls}>Imported by</h3>
+      <div className="mt-2.5">{rows(importedBy, "in")}</div>
+      <h3 className={sectionCls}>Packages</h3>
+      <div className="mt-2.5">
+        {pkgs.length === 0 ? <span className="text-sm text-white/35">None</span> : <div className="flex flex-wrap gap-2">{pkgs.map((p) => <Badge key={p}>{p}</Badge>)}</div>}
       </div>
-      <h3 className="mt-5 text-sm font-medium">Defined here</h3>
-      <div className="mt-2">
+      <h3 className={sectionCls}>Defined here</h3>
+      <div className="mt-2.5">
         {symbols.length === 0 ? (
-          <span className="text-sm text-white/40">No functions or classes found.</span>
+          <span className="text-sm text-white/35">No functions or classes found.</span>
         ) : (
-          <ul className="space-y-1.5">
+          <ul className="space-y-2">
             {symbols.map((s) => (
               <li key={s.id} className="flex items-center gap-2 text-sm">
-                <span className="min-w-0 flex-1 truncate font-mono">{s.name}</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-white/90">{s.name}</span>
                 <Badge>{s.kind}</Badge>
-                <span className="shrink-0 font-mono text-xs text-white/40">{s.start_line}</span>
+                <span className="shrink-0 font-mono text-xs tabular-nums text-white/35">L{s.start_line}</span>
               </li>
             ))}
           </ul>
@@ -323,54 +412,165 @@ function Details({ model, node, impact, setSel, className }: { model: Model; nod
 }
 
 function GraphView({ model, sel, setSel }: { model: Model; sel: Id | null; setSel: (id: Id) => void }) {
-  // Automatic layout, stored as 0..1 fractions so it stretches to any canvas size.
-  const auto = useMemo(() => {
-    const raw = layout(model.visible.map((f) => f.id), model.links, LW, LH);
-    const m = new Map<Id, P>();
-    raw.forEach((p, id) => m.set(id, { x: p.x / LW, y: p.y / LH }));
-    return m;
-  }, [model]);
-
-  const [moved, setMoved] = useState<Map<Id, P>>(() => new Map()); // nodes the user dragged
-  const [view, setView] = useState<View>({ k: 1, tx: 0, ty: 0 });
+  const [open, setOpen] = useState<Set<string>>(() => initialOpen(model));
   const [full, setFull] = useState(false);
-  const [hover, setHover] = useState<Id | null>(null);
-  const [size, setSize] = useState({ w: 700, h: 544 });
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
-  const drag = useRef<{ kind: "node" | "pan"; id?: Id; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null);
+  const [cy, setCy] = useState<any>(null);
+  const [tip, setTip] = useState<{ x: number; y: number; title: string; body?: string } | null>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
 
   const node = sel != null ? model.fileById.get(sel) : undefined;
   const impact = useMemo(() => impactOf(model, sel), [model, sel]);
 
-  // New graph: forget dragged positions and zoom.
+  // New graph: reset which folders are open.
   useEffect(() => {
-    setMoved(new Map());
-    setView({ k: 1, tx: 0, ty: 0 });
+    setOpen(initialOpen(model));
   }, [model]);
 
-  // Keep the drawing the same size as its box. Re-attaches when full screen toggles,
-  // because the full-screen view lives in a portal and its DOM nodes are new.
+  // Selecting a file also opens the folders above it, so it is visible.
+  const select = useCallback(
+    (id: Id) => {
+      setSel(id);
+      const f = model.fileById.get(id);
+      if (!f) return;
+      const need = ancestorsOf(f.path);
+      setOpen((o) => (need.every((d) => o.has(d)) ? o : new Set([...o, ...need])));
+    },
+    [model, setSel],
+  );
+  const toggle = useCallback((dir: string) => {
+    setOpen((o) => {
+      const n = new Set(o);
+      if (n.has(dir)) n.delete(dir);
+      else n.add(dir);
+      return n;
+    });
+  }, []);
+  const act = useRef({ select, toggle });
+  act.current = { select, toggle };
+
+  // Create the Cytoscape instance. It is created again when full screen toggles,
+  // because the full-screen view lives in a portal and its container is a new element.
   useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(([e]) => setSize({ w: Math.max(240, e.contentRect.width), h: Math.max(240, e.contentRect.height) }));
-    ro.observe(el);
-    return () => ro.disconnect();
+    let dead = false;
+    let inst: any = null;
+    (async () => {
+      const [{ default: cytoscape }, { default: fcose }] = await Promise.all([import("cytoscape"), import("cytoscape-fcose")]);
+      if (dead || !boxRef.current) return;
+      if (!fcoseRegistered) {
+        cytoscape.use(fcose as any);
+        fcoseRegistered = true;
+      }
+      inst = cytoscape({ container: boxRef.current, elements: [], style: GRAPH_STYLE, wheelSensitivity: 0.25, minZoom: 0.08, maxZoom: 4 });
+      inst.on("tap", "node", (evt: any) => {
+        const n = evt.target;
+        const d = n.data();
+        if (d.kind === "file") return act.current.select(d.fid);
+        // An open folder is a big box: only its title strip closes it, so clicks inside the box do nothing.
+        if (n.isParent()) {
+          const bb = n.boundingBox();
+          if (evt.position.y - bb.y1 > 30) return;
+        }
+        act.current.toggle(d.dir);
+      });
+      const el = boxRef.current;
+      const tipFor = (evt: any) => {
+        const t = evt.target;
+        const d = t.data();
+        const pos = evt.renderedPosition ?? { x: 0, y: 0 };
+        if (t.isEdge()) {
+          const body = d.full ? `uses ${d.full}` : d.count > 1 ? `${d.count} imports` : "imports";
+          return { x: pos.x, y: pos.y, title: `${t.source().data("label")} → ${t.target().data("label")}`, body };
+        }
+        if (d.kind === "folder") return { x: pos.x, y: pos.y, title: d.path, body: `${d.n} files. Click the title to ${d.open ? "close" : "open"} it.` };
+        return { x: pos.x, y: pos.y, title: d.label, body: d.path };
+      };
+      inst.on("mouseover", "node, edge", (evt: any) => {
+        el.style.cursor = "pointer";
+        setTip(tipFor(evt));
+        const t = evt.target;
+        if (t.isEdge()) t.addClass("peek");
+        else if (!t.isParent()) t.closedNeighborhood().addClass("peek");
+      });
+      inst.on("mousemove", "node, edge", (evt: any) => setTip(tipFor(evt)));
+      inst.on("mouseout", "node, edge", () => {
+        el.style.cursor = "";
+        setTip(null);
+        inst.elements().removeClass("peek");
+      });
+      inst.on("viewport", () => setTip(null));
+      setCy(inst);
+    })();
+    return () => {
+      dead = true;
+      inst?.destroy();
+      setCy(null);
+    };
   }, [full]);
 
-  // Wheel zoom needs a non-passive listener so the page does not scroll too.
+  // What to draw for the current set of open folders.
+  const elements = useMemo(() => buildElements(model, open), [model, open]);
+
   useEffect(() => {
-    const el = svgRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const r = el.getBoundingClientRect();
-      setView((v) => zoomAt(v, Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top));
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, [full]);
+    if (!cy) return;
+    cy.batch(() => {
+      cy.elements().remove();
+      cy.add(elements);
+    });
+    cy.layout({
+      name: "fcose",
+      quality: cy.nodes().length > 300 ? "default" : "proof",
+      randomize: false,
+      animate: "end",
+      animationDuration: 450,
+      fit: true,
+      padding: 40,
+      nodeDimensionsIncludeLabels: true,
+      packComponents: true,
+      tile: true, // lines up files that have no connections instead of scattering them
+      tilingPaddingVertical: 14,
+      tilingPaddingHorizontal: 14,
+      nodeRepulsion: () => 12000,
+      idealEdgeLength: () => 110,
+      edgeElasticity: () => 0.35,
+      nestingFactor: 0.12,
+      gravity: 0.25,
+      gravityCompound: 1.2,
+      numIter: 2500,
+    }).run();
+  }, [cy, elements]);
+
+  // Highlight the selected file and everything that depends on it.
+  const selRep = node ? repFor(node, open) : null;
+  const hotNodes = useMemo(() => {
+    const s = new Set<string>();
+    if (!node) return s;
+    s.add(repFor(node, open));
+    for (const id of impact.keys()) {
+      const f = model.fileById.get(id);
+      if (f) s.add(repFor(f, open));
+    }
+    return s;
+  }, [model, node, impact, open]);
+
+  useEffect(() => {
+    if (!cy) return;
+    cy.batch(() => {
+      cy.elements().removeClass("sel hot dim direct");
+      if (!selRep) return;
+      cy.nodes().not(":parent").addClass("dim");
+      cy.edges().addClass("dim");
+      cy.nodes().forEach((n: any) => {
+        if (hotNodes.has(n.id())) n.removeClass("dim").addClass(n.id() === selRep ? "sel" : "hot");
+      });
+      cy.edges().forEach((e: any) => {
+        const s = e.source().id();
+        const t = e.target().id();
+        if (!hotNodes.has(s) || !hotNodes.has(t)) return;
+        e.removeClass("dim").addClass("hot");
+        if (s === selRep || t === selRep) e.addClass("direct"); // only the selected file's own edges show their function names
+      });
+    });
+  }, [cy, elements, selRep, hotNodes]);
 
   // Full screen: Escape closes it, and the page behind stops scrolling.
   useEffect(() => {
@@ -385,174 +585,45 @@ function GraphView({ model, sel, setSel }: { model: Model; sel: Id | null; setSe
     };
   }, [full]);
 
-  // Where each node is on screen right now.
-  const screen = useMemo(() => {
-    const m = new Map<Id, P>();
-    for (const f of model.visible) {
-      const p = moved.get(f.id) ?? auto.get(f.id)!;
-      m.set(f.id, { x: p.x * size.w * view.k + view.tx, y: p.y * size.h * view.k + view.ty });
-    }
-    return m;
-  }, [model, auto, moved, size, view]);
-
-  const degree = (id: Id) => (model.imports.get(id)?.length ?? 0) + (model.importedBy.get(id)?.length ?? 0);
-  const radius = (id: Id) => 5 + Math.min(5, degree(id) * 0.5) + (id === sel ? 3 : 0);
-
-  // Labels: most important first, and a label is skipped if it would sit on top of one already placed.
-  const labels = useMemo(() => {
-    const near = new Set<Id>(sel != null ? [...(model.imports.get(sel) ?? []), ...(model.importedBy.get(sel) ?? [])] : []);
-    const prio = (id: Id) => (id === sel ? 1e9 : id === hover ? 1e9 - 1 : near.has(id) ? 1e6 : impact.has(id) ? 1e5 : 0) + degree(id);
-    const placed: { x0: number; x1: number; y0: number; y1: number }[] = [];
-    const shown = new Set<Id>();
-    for (const f of [...model.visible].sort((a, b) => prio(b.id) - prio(a.id))) {
-      const p = screen.get(f.id)!;
-      if (p.x < -40 || p.x > size.w + 40 || p.y < -20 || p.y > size.h + 20) continue;
-      const bw = short(base(f.path)).length * 6.6 + 10;
-      const box = { x0: p.x - bw / 2, x1: p.x + bw / 2, y0: p.y + 8, y1: p.y + 26 };
-      const must = f.id === sel || f.id === hover;
-      if (!must && placed.some((o) => box.x0 < o.x1 && box.x1 > o.x0 && box.y0 < o.y1 && box.y1 > o.y0)) continue;
-      placed.push(box);
-      shown.add(f.id);
-    }
-    return shown;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model, screen, sel, hover, impact, size]);
-
-  const inChain = (id: Id) => id === sel || impact.has(id);
-  const zoomBy = (f: number) => setView((v) => zoomAt(v, f, size.w / 2, size.h / 2));
+  const zoomBy = (f: number) => cy?.zoom({ level: cy.zoom() * f, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
 
   const content = (
     <div
-      className={cx(full ? "fixed inset-0 z-50 flex bg-[#0b0b0c]" : "grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]")}
+      className={cx(full ? "fixed inset-0 z-50 flex bg-[#0a0a0f]" : "grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]")}
       role={full ? "dialog" : undefined}
       aria-modal={full || undefined}
       aria-label={full ? "Dependency graph, full screen" : undefined}
     >
       <Card className={cx("relative overflow-hidden", full ? "min-w-0 flex-1 rounded-none border-0" : "h-[34rem]")}>
-        <div ref={wrapRef} className="absolute inset-0">
-          <svg ref={svgRef} width={size.w} height={size.h} className="block touch-none select-none" role="group" aria-label="Dependency graph. Select a file to see what depends on it.">
-            <defs>
-              <marker id="dp-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-                <path d="M0 0L10 5L0 10z" className="fill-white/35" />
-              </marker>
-              <marker id="dp-arrow-hot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-                <path d="M0 0L10 5L0 10z" className="fill-[#FF4D1C]" />
-              </marker>
-            </defs>
-
-            {/* background: drag to pan */}
-            <rect
-              width={size.w}
-              height={size.h}
-              fill="transparent"
-              className="cursor-grab active:cursor-grabbing"
-              onPointerDown={(e) => {
-                e.currentTarget.setPointerCapture(e.pointerId);
-                drag.current = { kind: "pan", sx: e.clientX, sy: e.clientY, ox: view.tx, oy: view.ty, moved: false };
-              }}
-              onPointerMove={(e) => {
-                const d = drag.current;
-                if (!d || d.kind !== "pan") return;
-                setView((v) => ({ ...v, tx: d.ox + e.clientX - d.sx, ty: d.oy + e.clientY - d.sy }));
-              }}
-              onPointerUp={() => (drag.current = null)}
-            />
-
-            {model.links.map(([a, b]) => {
-              const pa = screen.get(a)!;
-              const pb = screen.get(b)!;
-              const hot = inChain(a) && inChain(b);
-              const dx = pb.x - pa.x;
-              const dy = pb.y - pa.y;
-              const len = Math.hypot(dx, dy) || 1;
-              const trim = radius(b) + 3;
-              return (
-                <line
-                  key={`${a}>${b}`}
-                  x1={pa.x} y1={pa.y}
-                  x2={pb.x - (dx / len) * trim} y2={pb.y - (dy / len) * trim}
-                  strokeWidth={hot ? 1.6 : 1}
-                  markerEnd={`url(#${hot ? "dp-arrow-hot" : "dp-arrow"})`}
-                  pointerEvents="none"
-                  className={hot ? "stroke-[#FF4D1C]" : "stroke-white/20"}
-                />
-              );
-            })}
-
-            {model.visible.map((f) => {
-              const p = screen.get(f.id)!;
-              const on = f.id === sel;
-              const affected = impact.has(f.id);
-              const r = radius(f.id);
-              return (
-                <g
-                  key={f.id}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={f.path}
-                  aria-pressed={on}
-                  className="cursor-pointer outline-none [&:focus-visible>circle:first-child]:stroke-white"
-                  onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setSel(f.id))}
-                  onPointerEnter={() => setHover(f.id)}
-                  onPointerLeave={() => setHover(null)}
-                  onPointerDown={(e) => {
-                    e.stopPropagation();
-                    e.currentTarget.setPointerCapture(e.pointerId);
-                    drag.current = { kind: "node", id: f.id, sx: e.clientX, sy: e.clientY, ox: p.x, oy: p.y, moved: false };
-                  }}
-                  onPointerMove={(e) => {
-                    const d = drag.current;
-                    if (!d || d.kind !== "node" || d.id !== f.id) return;
-                    const dx = e.clientX - d.sx;
-                    const dy = e.clientY - d.sy;
-                    if (!d.moved && Math.hypot(dx, dy) < 4) return; // a click, not a drag
-                    d.moved = true;
-                    const nx = (d.ox + dx - view.tx) / (size.w * view.k);
-                    const ny = (d.oy + dy - view.ty) / (size.h * view.k);
-                    setMoved((m) => new Map(m).set(f.id, { x: nx, y: ny }));
-                  }}
-                  onPointerUp={() => {
-                    const d = drag.current;
-                    drag.current = null;
-                    if (d && !d.moved) setSel(f.id);
-                  }}
-                >
-                  <circle
-                    cx={p.x} cy={p.y} r={r}
-                    strokeWidth={2} stroke="transparent"
-                    className={on ? "fill-[#FF4D1C]" : affected ? "fill-[#FF4D1C]/60" : "fill-white/75 hover:fill-white"}
-                  />
-                  {on && <circle cx={p.x} cy={p.y} r={r + 8} className="fill-[#FF4D1C]/10" pointerEvents="none" />}
-                  {labels.has(f.id) && (
-                    <text
-                      x={p.x} y={p.y + r + 11}
-                      textAnchor="middle" fontSize={11}
-                      stroke="#0b0b0c" strokeWidth={3} strokeLinejoin="round" paintOrder="stroke"
-                      pointerEvents="none"
-                      className={cx("font-mono", on || affected || f.id === hover ? "fill-white" : "fill-white/60")}
-                    >
-                      {short(base(f.path))}
-                    </text>
-                  )}
-                </g>
-              );
-            })}
-          </svg>
-        </div>
+        <div
+          ref={boxRef}
+          className="absolute inset-0"
+          style={{
+            backgroundColor: SURFACE,
+            backgroundImage: "radial-gradient(ellipse at 50% 0%, rgba(129,140,248,0.08), transparent 60%), radial-gradient(rgba(255,255,255,0.055) 1px, transparent 1px)",
+            backgroundSize: "100% 100%, 24px 24px",
+          }}
+        />
+        {tip && (
+          <div className="pointer-events-none absolute z-10 max-w-xs rounded-lg border border-white/10 bg-[#14141c]/95 px-3 py-2 text-xs shadow-xl shadow-black/40 backdrop-blur" style={{ left: tip.x + 14, top: tip.y + 14 }}>
+            <p className="break-all font-mono font-medium text-white">{tip.title}</p>
+            {tip.body && <p className="mt-1 break-words text-white/55">{tip.body}</p>}
+          </div>
+        )}
 
         <div className="absolute right-3 top-3 flex flex-wrap justify-end gap-2">
           <button type="button" className={toolBtn} onClick={() => zoomBy(1.3)} aria-label="Zoom in">+</button>
           <button type="button" className={toolBtn} onClick={() => zoomBy(1 / 1.3)} aria-label="Zoom out">−</button>
-          <button type="button" className={toolBtn} onClick={() => setView({ k: 1, tx: 0, ty: 0 })}>Fit</button>
-          <button type="button" className={toolBtn} onClick={() => { setMoved(new Map()); setView({ k: 1, tx: 0, ty: 0 }); }}>Reset layout</button>
+          <button type="button" className={toolBtn} onClick={() => cy?.fit(undefined, 30)}>Fit</button>
+          <button type="button" className={toolBtn} onClick={() => setOpen(new Set(model.dirs))}>Open all folders</button>
+          <button type="button" className={toolBtn} onClick={() => setOpen(new Set())}>Close all folders</button>
           <button type="button" className={toolBtn} onClick={() => setFull((f) => !f)} aria-pressed={full}>{full ? "Exit full screen" : "Full screen"}</button>
         </div>
 
         <div className="pointer-events-none absolute bottom-3 left-3 right-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/45">
-          <span className="inline-flex items-center gap-1.5"><i className="size-2 rounded-full bg-[#FF4D1C]" /> Selected</span>
-          <span className="inline-flex items-center gap-1.5"><i className="size-2 rounded-full bg-[#FF4D1C]/60" /> Depends on it</span>
-          <span>Drag a file to move it. Scroll to zoom. Drag the background to pan.</span>
-          {model.files.length > model.visible.length && <span>Showing the {model.visible.length} most connected of {model.files.length} files.</span>}
+          <span className="inline-flex items-center gap-1.5"><i className="size-2 rounded-full bg-[#818CF8]" /> Selected</span>
+          <span className="inline-flex items-center gap-1.5"><i className="size-2 rounded-full border-2 border-[#818CF8]" /> Depends on it</span>
+          <span>Each folder has its own color. Hover a file or arrow to see why it is connected. Click a folder title to open or close it.</span>
         </div>
       </Card>
 
@@ -560,15 +631,15 @@ function GraphView({ model, sel, setSel }: { model: Model; sel: Id | null; setSe
         model={model}
         node={node}
         impact={impact}
-        setSel={setSel}
-        className={full ? "hidden w-80 shrink-0 overflow-y-auto rounded-none border-0 border-l border-white/10 md:block" : "self-start"}
+        setSel={select}
+        className={full ? "hidden w-96 shrink-0 overflow-y-auto rounded-none border-0 border-l border-white/10 md:block" : "self-start"}
       />
     </div>
   );
 
-  // Full screen is rendered in a portal on <body>. The page body is wrapped in an animated
-  // element (dp-rise); a transform on any ancestor turns `position: fixed` into "fixed relative
-  // to that ancestor", which is what broke the full-screen view. A portal avoids it entirely.
+  // Full screen is rendered in a portal on <body>. The page body sits inside an animated
+  // wrapper (dp-rise); a transform on any ancestor makes `position: fixed` relative to that
+  // ancestor instead of the viewport, which is what broke full screen before.
   if (full) {
     return (
       <>
@@ -622,12 +693,12 @@ function SearchView({ model, onOpen }: { model: Model; onOpen: (n: CNode) => voi
 
   return (
     <Card className="overflow-hidden">
-      <div className="space-y-3 border-b border-white/[0.06] p-4">
+      <div className="space-y-3 border-b border-white/[0.06] p-5">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search functions, classes, methods and files" aria-label="Search the code index" className={cx(inputCls, "w-full")} />
         <div className="flex flex-wrap gap-2">
           {KIND_FILTERS.map((k) => (
             <Chip key={k.id} active={kind === k.id} onClick={() => setKind(k.id)}>
-              {k.label} {countByKind[k.id] ?? 0}
+              {k.label} <span className="tabular-nums text-white/40">{countByKind[k.id] ?? 0}</span>
             </Chip>
           ))}
         </div>
@@ -639,16 +710,16 @@ function SearchView({ model, onOpen }: { model: Model; onOpen: (n: CNode) => voi
           <ul className="divide-y divide-white/[0.06]" aria-live="polite">
             {results.slice(0, MAX_RESULTS).map((n) => (
               <li key={n.id}>
-                <button type="button" onClick={() => onOpen(n)} className="block w-full px-5 py-3 text-left transition-colors hover:bg-white/[0.02] focus-visible:bg-white/[0.04] focus-visible:outline-none">
+                <button type="button" onClick={() => onOpen(n)} className="block w-full px-5 py-3.5 text-left transition-colors hover:bg-[#818CF8]/[0.06] focus-visible:bg-[#818CF8]/[0.08] focus-visible:outline-none">
                   <span className="flex items-center gap-3">
-                    <span className="min-w-0 truncate font-mono text-sm">{label(n)}</span>
+                    <span className="min-w-0 truncate font-mono text-sm font-medium text-white">{label(n)}</span>
                     <Badge>{n.kind}</Badge>
-                    <span className="min-w-0 flex-1 truncate text-right font-mono text-xs text-white/45">
+                    <span className="min-w-0 flex-1 truncate text-right font-mono text-xs text-white/40">
                       {n.path}
                       {n.kind !== "file" && n.start_line ? `:${n.start_line}` : ""}
                     </span>
                   </span>
-                  {n.signature && n.kind !== "file" && <span className="mt-1 block truncate font-mono text-xs text-white/35">{n.signature}</span>}
+                  {n.signature && n.kind !== "file" && <span className="mt-1.5 block truncate font-mono text-xs text-[#818CF8]/70">{n.signature}</span>}
                 </button>
               </li>
             ))}
@@ -676,25 +747,25 @@ function BrainView({ model }: { model: Model }) {
   ];
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-      <Card className="self-start p-5">
-        <h2 className="text-lg">Repository brain</h2>
-        <p className="mt-1 text-sm text-white/50">Builds on the code graph so an assistant can answer questions about this repository.</p>
-        <ul className="mt-4 space-y-3">
+      <Card className="self-start p-6">
+        <h2 className="text-xl font-semibold tracking-tight text-white">Repository brain</h2>
+        <p className="mt-1.5 text-sm leading-relaxed text-white/50">Builds on the code graph so an assistant can answer questions about this repository.</p>
+        <ul className="mt-5 space-y-4">
           {steps.map((s) => (
             <li key={s.title} className="flex gap-3">
-              <span aria-hidden className={cx("mt-1.5 size-2 shrink-0 rounded-full", s.done ? "bg-[#FF4D1C]" : "border border-white/25")} />
+              <span aria-hidden className={cx("mt-1.5 size-2.5 shrink-0 rounded-full", s.done ? "bg-[#818CF8] shadow-[0_0_10px_rgba(129,140,248,0.7)]" : "border border-white/25")} />
               <div>
-                <p className="text-sm">
+                <p className="text-sm font-medium text-white">
                   {s.title} <span className="sr-only">{s.done ? "ready" : "not built yet"}</span>
                 </p>
-                <p className="text-xs text-white/45">{s.note}</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-white/45">{s.note}</p>
               </div>
             </li>
           ))}
         </ul>
       </Card>
 
-      <Card className="p-4">
+      <Card className="p-5">
         <div className="flex gap-2">
           <input disabled placeholder="Ask anything about this repository" aria-label="Ask about the repository" className={cx(inputCls, "min-w-0 flex-1 cursor-not-allowed opacity-50")} />
           <Btn onClick={() => { }} disabled>
@@ -711,6 +782,29 @@ function BrainView({ model }: { model: Model }) {
    Page
    ===================================================================== */
 
+function useElapsed(running: boolean) {
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    if (!running) {
+      setSecs(0);
+      return;
+    }
+    const start = Date.now();
+    const t = setInterval(() => setSecs(Math.floor((Date.now() - start) / 1000)), 500);
+    return () => clearInterval(t);
+  }, [running]);
+  return secs;
+}
+
+const fmt = (s: number) => (s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`);
+
+function Spinner() {
+  return <span aria-hidden className="inline-block size-3.5 animate-spin rounded-full border-2 border-white/25 border-t-[#818CF8]" />;
+}
+
+// The backend doesn't report progress, so these stages are estimates based on elapsed time.
+const stageFor = (s: number) => (s < 6 ? "Cloning the repository" : s < 20 ? "Parsing code and building the graph" : "Saving the graph and code");
+
 export default function CodeIntelligencePage() {
   const [tab, setTab] = useState<Tab>("graph");
   const [repos, setRepos] = useState<Repo[] | null>(null);
@@ -721,6 +815,7 @@ export default function CodeIntelligencePage() {
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
 
   const { status, graph, error, reload } = useGraph(repoId);
+  const secs = useElapsed(indexing);
 
   const loadRepos = useCallback(async () => {
     // Row-level security returns only the repositories this user may see.
@@ -785,7 +880,11 @@ export default function CodeIntelligencePage() {
       disabled={repoId == null || indexing}
       title="Clones the latest commit and rebuilds the saved graph. You don't need this just to view the graph."
     >
-      {indexing ? "Indexing" : indexed ? "Re-index" : "Index repository"}
+      {indexing ? (
+        <span className="inline-flex items-center gap-2">
+          <Spinner /> Indexing · {fmt(secs)}
+        </span>
+      ) : indexed ? "Re-index" : "Index repository"}
     </Btn>
   );
 
@@ -793,7 +892,7 @@ export default function CodeIntelligencePage() {
   if (tab === "brain" && model && indexed) body = <BrainView model={model} />;
   else if (reposError) body = <Empty>{reposError}</Empty>;
   else if (repos && repos.length === 0) body = <Empty>No repositories are connected to your account yet.</Empty>;
-  else if (status === "error") body = <Empty><span className="block">{error}</span><span className="mt-2 block text-white/40">You can still use the button at the top right to index the repository.</span> <button type="button" onClick={reload} className="mt-2 underline underline-offset-2">Try again</button></Empty>;
+  else if (status === "error") body = <Empty><span className="block">{error}</span><span className="mt-2 block text-white/40">You can still use the button at the top right to index the repository.</span> <button type="button" onClick={reload} className="mt-2 text-[#818CF8] underline underline-offset-2 hover:text-white">Try again</button></Empty>;
   else if (!model || (status === "loading" && !graph) || !repos) body = <Empty>Loading</Empty>;
   else if (!indexed)
     body = (
@@ -808,20 +907,20 @@ export default function CodeIntelligencePage() {
   else body = null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" style={{ fontFamily: FONT_SANS }}>
       <Reveal>
         <PageHeader title="Code intelligence" desc="See how a repository fits together, find any function or file, and ask questions about the code." action={repoId != null ? generateButton : undefined} />
       </Reveal>
 
       <Reveal delay={80}>
-        <Card className="p-4">
+        <Card className="p-5">
           <div className="flex flex-wrap items-center gap-3">
             <select
               value={repoId ?? ""}
               onChange={(e) => { setRepoId(Number(e.target.value)); setNotice(null); }}
               disabled={!repos || repos.length === 0}
               aria-label="Repository"
-              className={cx(inputCls, "min-w-[14rem]")}
+              className={cx(inputCls, "min-w-[14rem] font-mono text-[13px]")}
             >
               {!repos && <option>Loading repositories</option>}
               {repos?.length === 0 && <option>No repositories</option>}
@@ -830,18 +929,18 @@ export default function CodeIntelligencePage() {
               ))}
             </select>
             <span className="text-xs text-white/40" aria-live="polite">
-              {indexing ? "Cloning and parsing the repository. This can take a minute." : repo?.last_indexed_at ? `Showing the graph saved ${ago(repo.last_indexed_at)}. Re-index to pick up new commits.` : ""}
+              {indexing ? `${stageFor(secs)}. This can take a minute.` : repo?.last_indexed_at ? `Showing the graph saved ${ago(repo.last_indexed_at)}. Re-index to pick up new commits.` : ""}
             </span>
           </div>
           {indexed && model && (
-            <div className="mt-4 flex flex-wrap gap-x-8 gap-y-3 border-t border-white/[0.06] pt-4">
+            <div className="mt-5 flex flex-wrap gap-x-10 gap-y-4 border-t border-white/[0.06] pt-5">
               <Stat value={model.counts.files} name="files" />
               <Stat value={model.counts.symbols} name="functions and classes" />
               <Stat value={model.counts.imports} name="imports between files" />
               <Stat value={model.counts.packages} name="packages used" />
             </div>
           )}
-          {notice && <p role="status" className={cx("mt-3 text-sm", notice.ok ? "text-white/70" : "text-[#FF4D1C]")}>{notice.text}</p>}
+          {notice && <p role="status" className={cx("mt-4 text-sm", notice.ok ? "text-emerald-300" : "text-rose-400")}>{notice.text}</p>}
         </Card>
       </Reveal>
 

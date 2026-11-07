@@ -1,51 +1,81 @@
 # DevPilot
 
-## Product summary
-DevPilot is a SaaS product that connects to a developer's GitHub repositories and builds a graph/tree view of the codebase. It detects the repository's tech stack, explains what the project does, scans for code quality and security issues, runs pre-flight checks on pull requests, monitors PR merges and CI failures via webhooks, and provides deeper repo-health analysis.
+DevPilot is a repository intelligence platform for GitHub codebases. It helps developers understand repository structure, surface risky or low-quality areas, and prepare pull requests for review with clearer, more actionable signal.
 
-## Vision
-Initial focus is on Python backend repositories. The product aims to help engineering teams understand repository health, detect risks early, and assist with PR validation and remediation.
+## Current project status
+This repository is not a blank scaffold anymore. It contains the working foundations for the product:
 
-## Tiers
-### Free
-- Connect a repository
-- File tree and dependency graph
-- Detected tech stack
-- AI summary of repository purpose
-- Basic quality and secret scanning
+- a Next.js dashboard in `web/`
+- a FastAPI gateway in `services/api/`
+- a Python repository-analysis package in `services/code_intelligence/`
+- Supabase integration for authentication, metadata, and repo state
+- GitHub App support for installation and repo access flows
+- a graph-based indexing pipeline for files, imports, and symbol relationships
 
-### Paid
-- Webhooks
-- PR monitoring
-- Pre-flight checks
-- CI failure tracking
-- Repo health insights
-- Event history
+The system is still intentionally narrow and production-oriented. The current focus is on static repository analysis rather than autonomous repository mutation.
 
-### Top tier
-- Failed-PR analysis
-- Patch generation
-- Sandbox verification
-- PR creation with human approval
+## Product scope
+### Core goals
+- analyze a repository and extract file-level structure
+- map import and symbol relationships in a graph
+- detect likely technology stack and project intent
+- run static quality and security checks
+- present results in a dashboard for users and repos
 
-## Stack direction
-- Web: Next.js, TypeScript, Tailwind CSS, shadcn/ui
-- API: Python, FastAPI
-- Database: PostgreSQL
-- Auth: GitHub login and GitHub App for repo access and webhooks
-- Code intelligence: Git and Tree-sitter
-- Static scanners: Ruff, Bandit, Gitleaks
-- Sandbox: Docker initially, hardened later
-- Model provider abstraction: provider-agnostic interface
+### Current emphasis
+- Python-first repo analysis
+- GitHub-connected workflows
+- static intelligence over dynamic execution
+- secure handling of repo access and secret material
 
-## Current status
-This repository is the initial scaffold for the project. No application code, dependencies, or runtime setup has been created yet.
+### Deferred or open areas
+- billing
+- observability
+- worker orchestration
+- broad multi-language support
+- sandbox hardening and autonomous patching
 
-## How to run
-TODO: define local development commands for web app and API service after the project scaffold is expanded.
+## Repository layout
+- `web/` — Next.js app and dashboard UI
+- `services/api/` — FastAPI gateway, auth-facing routes, service integration layer
+- `services/code_intelligence/` — repository graph indexing, AST extraction, and scanning logic
+- `docs/` — architecture, setup, product, and policy docs
+- `docker-compose.yml` — infrastructure scaffolding
+
+## Architecture in one sentence
+The web app calls the API gateway, the API asks the code-intelligence service to index a repo, and the analysis results are persisted in Supabase and returned through the dashboard.
+
+## Local setup
+See the setup guide in `docs/SETUP.md` for environment variables and the recommended local workflow.
+
+### Quick start summary
+1. install the Python package for repo analysis
+2. start the API gateway
+3. start the web app
+4. configure the required environment variables in local env files
+5. use the dashboard to connect a repo and trigger indexing
+
+## Environment and configuration
+The system expects a small set of environment values, including:
+
+- `INTERNAL_API_KEY` between the web layer and the API service
+- `CODE_INTEL_API_URL` for the web app to reach the gateway
+- `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- GitHub App configuration values such as `GITHUB_APP_ID`, `GITHUB_APP_CLIENT_ID`, and the private key path or PEM payload
+
+Do not commit secrets or tokens to the repo. Keep them in local env files or a secure secret store.
+
+## Security posture
+The project intentionally avoids executing untrusted repository code on the host. The product focuses on static analysis and metadata extraction. Findings should be reported as results from selected checks, not as a blanket claim that a repo is secure.
+
+## Documentation map
+- `docs/ARCHITECTURE.md` — current system architecture
+- `docs/SETUP.md` — local setup and configuration
+- `docs/SECURITY.md` — security posture and risk model
+- `docs/ROADMAP.md` — delivery plan and milestone status
+- `docs/DECISIONS.md` — architecture and product decisions
 
 ## Notes
-- Billing provider: OPEN QUESTION
-- Sandbox technology: OPEN QUESTION
-- Hosting: OPEN QUESTION
-- Later phases such as Redis workers, observability, billing, and VS Code extension are intentionally deferred.
+- The repo currently reflects a working MVP foundation rather than a complete SaaS rollout.
+- Unknown platform and billing decisions remain intentionally open until they are confirmed.

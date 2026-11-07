@@ -26,20 +26,24 @@ async function requireRepo(repo: string | null) {
     console.error(`[code-intelligence] repo ${repo} is not visible to user ${auth.user.id}`);
     throw new HttpError(404, "Repository not found.");
   }
-  return repo;
+  return { repo, userId: auth.user.id };;
 }
 
-async function service(path: string, method: "GET" | "POST") {
+async function service(path: string, method: "GET" | "POST", userId: string) {
   if (!KEY) throw new HttpError(500, "INTERNAL_API_KEY is not set in web/.env.local.");
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${path}`, { method, cache: "no-store", headers: { "X-Internal-Key": KEY } });
+    res = await fetch(`${API_URL}${path}`, {
+      method,
+      cache: "no-store",
+      headers: { "x-internal-key": KEY, "x-user-id": userId },
+    });
   } catch {
     throw new HttpError(502, `Cannot reach the code intelligence service at ${API_URL}. Is it running?`);
   }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    if (res.status === 401) throw new HttpError(502, "Service key mismatch. Check INTERNAL_API_KEY in both .env files.");
+    if (res.status === 401) throw new HttpError(502, "Service rejected the request. Check INTERNAL_API_KEY in both .env files and that the user id is sent.");
     throw new HttpError(res.status, typeof body?.detail === "string" ? body.detail : "The code intelligence service failed.");
   }
   return body;
@@ -50,10 +54,11 @@ async function run(req: Request, method: "GET" | "POST") {
     const url = new URL(req.url);
     const op = url.searchParams.get("op");
     if (op === "ping") return NextResponse.json({ ok: true, serviceUrl: API_URL, keySet: KEY.length > 0 });
-    const id = await requireRepo(url.searchParams.get("repo"));
 
-    if (op === "graph" && method === "GET") return NextResponse.json(await service(`/code-intelligence/repos/${id}/graph`, "GET"));
-    if (op === "index" && method === "POST") return NextResponse.json(await service(`/code-intelligence/repos/${id}/index`, "POST"));
+    const { repo: id, userId } = await requireRepo(url.searchParams.get("repo"));
+
+    if (op === "graph" && method === "GET") return NextResponse.json(await service(`/code-intelligence/repos/${id}/graph`, "GET", userId));
+    if (op === "index" && method === "POST") return NextResponse.json(await service(`/code-intelligence/repos/${id}/index`, "POST", userId));
     throw new HttpError(400, "Unknown operation.");
   } catch (e) {
     if (e instanceof HttpError) return NextResponse.json({ error: e.message }, { status: e.status });

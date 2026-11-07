@@ -1,77 +1,73 @@
 # Architecture
 
-## High-level architecture
-DevPilot is structured as a modular monolith. The agent runtime lives inside the API layer rather than as a separate service.
+## Overview
+DevPilot is organized around a simple flow: authenticate a user, connect a repository, analyze the repo structure, and surface findings in a dashboard. The current codebase already reflects that split across the web app, API gateway, and Python graph/indexing module.
 
-### Components
-- Web app: Next.js, TypeScript, Tailwind CSS, shadcn/ui
-- API service: Python, FastAPI
-- Agent module: repository analysis and orchestration logic inside the API module boundary
-- Scanners: Ruff, Bandit, Gitleaks
-- Database: PostgreSQL
-- GitHub App: repo access and webhook integration
-- Sandbox: Docker initially, hardened later
-- Model provider interface: small abstraction for LLM providers
+## System components
+### Web application
+Location: `web/`
 
-## Communication model
-- The web app calls the API for repository operations and user actions
-- The API orchestrates repository analysis, graph building, and scan execution
-- The agent module performs repo inspection and interpretation inside the API process boundary
-- The GitHub App receives repo events and webhook payloads
-- The API writes repo metadata and results to PostgreSQL
-- Static analysis tools run in controlled execution paths; repository code is never run on the host
+This is the product frontend. It includes:
+- dashboard screens for overview, repos, pull requests, code intelligence, and settings
+- Supabase auth sessions and middleware
+- GitHub OAuth and installation flows
+- API route proxies that validate the current user and call the analysis service
+
+### API gateway
+Location: `services/api/gateway/`
+
+This is the boundary that the frontend talks to. The current gateway exposes a `health` endpoint and a `code-intelligence` router with:
+- `POST /code-intelligence/repos/{repo_id}/index`
+- `GET /code-intelligence/repos/{repo_id}/graph`
+
+The gateway also enforces a shared internal service key before allowing requests.
+
+### Code intelligence package
+Location: `services/code_intelligence/`
+
+This module is responsible for repository indexing and graph extraction. It includes:
+- `app/graph/walker.py` for repository discovery and file enumeration
+- `app/graph/extractor.py` for AST-based symbol extraction
+- `app/graph/imports.py` for import and call-edge detection
+- `app/graph/indexer.py` for graph persistence to Supabase
+- `app/integrations/clone.py` and `app/integrations/github.py` for repository access and install token flows
+- `app/db.py` for the Supabase client and data access layer
+
+### Data layer
+The code intelligence and web layers are backed by Supabase for:
+- user auth
+- repository metadata
+- installation state
+- findings and scan results
+- code graph storage (`code_nodes`, `code_edges`, repository records)
+
+## Data flow
+1. A user signs in through the web app using Supabase auth.
+2. The web app verifies that the repo belongs to the current user or installation.
+3. The frontend calls the internal API route at `web/app/api/code-intelligence/route.ts`.
+4. The API route validates the repository and calls the FastAPI service with the internal key.
+5. The FastAPI gateway receives the request and calls the repo indexing or graph-loading flow.
+6. The Python service clones or accesses the repo, walks the files, and extracts relationships.
+7. Symbol and import data are normalized into a graph.
+8. Results are saved as nodes and edges in the database.
+9. The dashboard renders the indexed repo graph and repository summary data.
+
+## Why this structure
+This project favors a small, explicit architecture:
+
+- the web app stays focused on UX and user flow
+- the API gateway remains thin and authorization-aware
+- the graph engine is isolated in a Python package with clear responsibilities
+- Supabase handles storage and auth without introducing extra service complexity
 
 ## Security boundaries
-- Host environment is isolated from untrusted repository code
-- Static analysis is preferred over dynamic execution in the early product scope
-- Secrets and tokens are never logged or exposed
-- The sandbox is required for any later automated verification or patch validation
-- Permission boundaries should be explicit per repository and per user
-
-## Data flow: scan a repository
-1. User authenticates with GitHub
-2. User selects or connects a repository
-3. API receives the repository identifier and access context
-4. Agent module clones or pulls the repository metadata into a controlled workspace
-5. File tree is captured from the repository
-6. Git and Tree-sitter are used to extract structure and relationships
-7. Import and dependency analysis build the repo graph
-8. Stack detection infers frameworks, build tooling, and runtime dependencies
-9. Summary generation explains the repository purpose and likely responsibilities
-10. Static scanners run quality and security checks
-11. Findings are normalized into a report for API response and storage
-12. Results are displayed in the web app and saved to the database
-
-## Technology choices and reasons
-### Web app: Next.js, TypeScript, Tailwind CSS, shadcn/ui
-These tools provide a modern, maintainable frontend with good DX and a clear path for product UI work.
-
-### API: Python, FastAPI
-FastAPI is well suited for structured APIs, validation, and rapid service development in a Python-first product.
-
-### Modular monolith
-Keeping the agent runtime in the API module instead of a separate service reduces complexity early while still allowing future modular boundaries.
-
-### Database: PostgreSQL
-PostgreSQL is a strong fit for relational metadata, events, usage tracking, and future billing and audit data.
-
-### GitHub App + GitHub login
-GitHub App access is appropriate for repository-level permissions and webhook events, while GitHub login supports user authentication.
-
-### Code intelligence: Git and Tree-sitter
-These technologies are suitable for repository tree extraction, structural parsing, and import graph analysis without requiring full dynamic execution.
-
-### Security scanners: Ruff, Bandit, Gitleaks
-These scanners align with Python-focused static quality and security analysis and do not require running the target repository code.
-
-### Sandbox: Docker initially
-Docker is a practical initial sandbox technology for controlled verification and later hardening.
-
-### Model provider abstraction
-A small abstraction prevents vendor lock-in while keeping the interface simple and testable.
+- repository code is not executed directly on the host during the current static-analysis flow
+- credentials are not committed to the repo
+- internal service calls use a shared key rather than broad public endpoints
+- GitHub App and repo access remain governed by explicit installation and user checks
 
 ## Open questions
-- Billing provider: OPEN QUESTION
-- Hosting platform: OPEN QUESTION
-- Sandbox technology beyond Docker: OPEN QUESTION
-- Specific GitHub App permission model: OPEN QUESTION
+- final production hosting model
+- sandbox technology beyond the current static-analysis approach
+- webhook and PR automation scope
+- final billing and usage model
