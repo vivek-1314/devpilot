@@ -1,43 +1,52 @@
 # Product overview
 
 ## Product vision
-DevPilot is a repository intelligence product for GitHub repos. It gives engineering teams a clearer view of what a codebase does, how it is structured, where the risk areas live, and whether a PR is likely to introduce issues before merge.
+DevPilot is a repository intelligence product for GitHub-based codebases. Its current purpose is to help a user understand what a repository is doing, how its files and symbols are connected, and where likely quality or security issues appear before review.
 
 ## Primary users
-- independent developers maintaining their own backend projects
-- small teams with several repos and shared review cycles
-- maintainers who need an at-a-glance repo summary before reading code deeply
-- reviewers who want better pre-merge signal without manual repo exploration
+- developers who need faster repository context
+- engineering teams reviewing multiple repositories
+- maintainers trying to understand a codebase without reading everything manually
+- reviewers who want static repo signal before approval
 
-## Current product focus
-The active product scope is intentionally narrow and practical:
-
-- repo indexing and graph extraction
-- file and symbol visibility
-- static import relationship mapping
+## Current product scope
+The project is intentionally narrow and practical. The implementation currently focuses on:
+- repository indexing and graph extraction
+- file, symbol, and import visibility
 - GitHub repo connection and installation flow
-- security and quality reporting in a dashboard
+- static quality and security scanning
+- repo-level chat and repository guide generation
 
-## Problems addressed
-- repo structure is hard to understand without reading many files
-- module and dependency relationships are not obvious in large repos
+## Problems the repo is trying to solve
+- repo structure is hard to understand without reading a large number of files
+- dependency and import relationships are not obvious in large repos
 - stack and project intent are often inferred manually
-- code quality and security issues can be missed during quick review
-- PR review benefits from repository context and static signal
+- security and quality issues can be missed during quick review
+- repository context is useful before a PR is approved or merged
 
-## Milestone status
-The current repo already includes:
-- dashboard pages and project shell
-- an API gateway for repository intelligence requests
-- a Python graph/indexing package
-- repo metadata integration through Supabase
-- GitHub App installation plumbing
+## Current implementation state
+The codebase already includes:
+- a Next.js dashboard shell
+- a FastAPI backend with repo-scoped routes
+- a Python indexing and graph pipeline
+- repository access checks tied to user + installation ownership
+- GitHub App token retrieval for repo access
+- static scanners for Ruff, Bandit, Gitleaks, and ESLint
+- a repo chat agent built on graph metadata
 
-This means the product has moved past pure planning into an initial implementation stage.
+This means the project has moved beyond planning into a working MVP foundation.
 
 ## Product principles
-- prioritize static, secure analysis over dynamic execution
+- keep analysis static and safe by default
 - keep the initial scope small and reviewable
-- avoid broad claims like "safe" or "secure" based on limited checks
-- make repo permissions and usage boundaries explicit
-- favor clarity and operational safety over speculative automation
+- do not claim absolute safety from a limited number of checks
+- make repo access and permissions explicit
+- favor evidence-based repo intelligence over speculation
+
+## Scope boundaries
+The current implementation does not yet include:
+- full PR automation
+- sandbox execution for untrusted repos
+- final production hosting and billing decisions
+- large-scale multi-language expansion
+- broad observability and operations tooling

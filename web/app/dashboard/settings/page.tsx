@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/browser";
+import { QualityError, setRepoEnabled } from "@/lib/quality";
 import { Badge, Btn, Card, Field, PageHeader, ProgressBar, Reveal, Segmented, Switch } from "../_components/ui";
 
 type Tab = "account" | "github" | "workspace" | "preferences" | "usage";
@@ -22,8 +23,10 @@ type Repo = {
 type Prefs = { email_failed_prs: boolean; email_high_findings: boolean; weekly_summary: boolean };
 type UsageCounts = { analyses: number; agentRuns: number; repos: number };
 
-// Plan limits shown on the Usage tab. Change these when you add real plans.
-const LIMITS = { analyses: 100, agentRuns: 20, repos: 5 };
+// Free plan limits shown on the Usage tab. The repo limit is enforced by the database
+// (enforce_repo_limit in migration 001); keep REPO_LIMIT in sync with it.
+const REPO_LIMIT = 2;
+const LIMITS = { analyses: 100, agentRuns: 20 };
 
 const DEFAULT_PREFS: Prefs = { email_failed_prs: true, email_high_findings: true, weekly_summary: false };
 
@@ -88,7 +91,7 @@ function useSettingsData() {
       installations: (i.data ?? []) as Installation[],
       repos,
       prefs: (pr.data as Prefs | null) ?? DEFAULT_PREFS,
-      usage: { analyses: sc.count ?? 0, agentRuns: ag.count ?? 0, repos: repos.length },
+      usage: { analyses: sc.count ?? 0, agentRuns: ag.count ?? 0, repos: repos.filter((x) => x.analyze_enabled).length },
     });
   }, []);
 
@@ -178,20 +181,44 @@ function GitHub({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [limit, setLimit] = useState(REPO_LIMIT);
+  const [pending, setPending] = useState<Set<number>>(new Set()); // repos with a save in flight
   const { installations, repos, profile } = data;
+  const enabledCount = repos.filter((r) => r.analyze_enabled).length;
 
   if (installations.length === 0) return <NotConnected />;
 
+  const mark = (id: number, on: boolean) =>
+    setPending((p) => {
+      const n = new Set(p);
+      if (on) n.add(id);
+      else n.delete(id);
+      return n;
+    });
+
+  // The backend is the authority: it checks you own the repo and enforces the plan limit.
+  // The switch moves right away and snaps back if the server says no.
   async function toggle(repo: Repo, value: boolean) {
+    if (pending.has(repo.id)) return;
     setError("");
-    setRepos((list) => list.map((r) => (r.id === repo.id ? { ...r, analyze_enabled: value } : r)));
-    const { error: err } = await createClient()
-      .from("repositories")
-      .update({ analyze_enabled: value })
-      .eq("id", repo.id);
-    if (err) {
-      setRepos((list) => list.map((r) => (r.id === repo.id ? { ...r, analyze_enabled: !value } : r)));
-      setError("Could not save that change. Try again.");
+
+    if (value && enabledCount >= limit) {
+      setError(`Your plan includes ${limit} repositories. Turn one off to turn another on.`);
+      return;
+    }
+
+    const set = (on: boolean) => setRepos((list) => list.map((r) => (r.id === repo.id ? { ...r, analyze_enabled: on } : r)));
+    mark(repo.id, true);
+    set(value);
+    try {
+      const res = await setRepoEnabled(repo.id, value);
+      setLimit(res.limit);
+      set(res.enabled);
+    } catch (e) {
+      set(!value);
+      setError(e instanceof QualityError ? e.message : "Could not save that change. Try again.");
+    } finally {
+      mark(repo.id, false);
     }
   }
 
@@ -239,16 +266,21 @@ function GitHub({
       </Card>
 
       <Card className="px-5">
-        <p className="pt-4 text-sm font-medium">Repositories</p>
+        <div className="flex items-baseline justify-between gap-4 pt-4">
+          <p className="text-sm font-medium">Repositories</p>
+          <p aria-live="polite" className="text-xs text-white/50">
+            <span className={enabledCount >= limit ? "text-[#FF7A52]" : "text-white/70"}>{enabledCount}</span> of {limit} enabled
+          </p>
+        </div>
         <p className="mt-1 text-xs text-white/40">
-          GitHub decides which repositories DevPilot can read. These switches control which of them get analyzed.
+          GitHub decides which repositories DevPilot can read. These switches choose which of them DevPilot indexes and scans. Your plan allows {limit}.
         </p>
         {repos.length === 0 ? (
           <p className="py-6 text-sm text-white/40">No repositories were shared with DevPilot.</p>
         ) : (
           <ul className="divide-y divide-white/[0.06]">
             {repos.map((r) => (
-              <li key={r.id}>
+              <li key={r.id} className={pending.has(r.id) ? "opacity-60 transition-opacity" : "transition-opacity"}>
                 <Row
                   title={r.full_name}
                   hint={[r.private ? "Private" : "Public", r.language, `branch ${r.default_branch}`].filter(Boolean).join(" · ")}
@@ -269,7 +301,7 @@ function GitHub({
         <Btn variant="ghost" className="hover:border-[#FF4D1C]/50 hover:text-[#FF7A52]" onClick={disconnect} disabled={busy}>
           {busy ? "Disconnecting…" : "Disconnect GitHub"}
         </Btn>
-        <span aria-live="polite" className="text-xs text-[#FF7A52]">
+        <span role="alert" aria-live="polite" className="text-xs text-[#FF7A52]">
           {error}
         </span>
       </div>
@@ -357,7 +389,7 @@ function Usage({ usage }: { usage: UsageCounts }) {
   const rows = [
     { label: "Analyses this month", used: usage.analyses, max: LIMITS.analyses },
     { label: "Agent runs this month", used: usage.agentRuns, max: LIMITS.agentRuns },
-    { label: "Connected repositories", used: usage.repos, max: LIMITS.repos },
+    { label: "Enabled repositories", used: usage.repos, max: REPO_LIMIT },
   ];
   return (
     <Card className="max-w-xl space-y-6 p-5">
@@ -380,6 +412,9 @@ function Usage({ usage }: { usage: UsageCounts }) {
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>("account");
   const { data, setData, reload } = useSettingsData();
+
+  // Enabled repos change on the GitHub tab, so the Usage tab counts them from the live list.
+  const usage = { ...data.usage, repos: data.repos.filter((r) => r.analyze_enabled).length };
 
   return (
     <div className="space-y-6">
@@ -422,7 +457,7 @@ export default function SettingsPage() {
                 setPrefs={(p) => setData((d) => ({ ...d, prefs: p }))}
               />
             )}
-            {tab === "usage" && <Usage usage={data.usage} />}
+            {tab === "usage" && <Usage usage={usage} />}
           </>
         )}
       </div>

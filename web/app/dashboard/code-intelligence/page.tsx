@@ -822,6 +822,7 @@ export default function CodeIntelligencePage() {
     const { data, error } = await createClient()
       .from("repositories")
       .select("id, full_name, language, index_status, last_indexed_at")
+      .eq("analyze_enabled", true)
       .order("full_name");
     if (error) {
       setReposError(error.message);
@@ -891,7 +892,7 @@ export default function CodeIntelligencePage() {
   let body: React.ReactNode;
   if (tab === "brain" && model && indexed) body = <BrainView model={model} />;
   else if (reposError) body = <Empty>{reposError}</Empty>;
-  else if (repos && repos.length === 0) body = <Empty>No repositories are connected to your account yet.</Empty>;
+  else if (repos && repos.length === 0) body = <Empty>No repositories are enabled. Enable one on the Repositories page to index it.</Empty>;
   else if (status === "error") body = <Empty><span className="block">{error}</span><span className="mt-2 block text-white/40">You can still use the button at the top right to index the repository.</span> <button type="button" onClick={reload} className="mt-2 text-[#818CF8] underline underline-offset-2 hover:text-white">Try again</button></Empty>;
   else if (!model || (status === "loading" && !graph) || !repos) body = <Empty>Loading</Empty>;
   else if (!indexed)
@@ -901,7 +902,7 @@ export default function CodeIntelligencePage() {
         <span className="mt-4 block">{generateButton}</span>
       </Empty>
     );
-  else if (tab === "graph" && model.files.length === 0) body = <Empty>No code files were found in this repository.</Empty>;
+  else if (tab === "graph" && model.files.length === 0) body = <Empty>No repositories are enabled. Enable one on the Repositories page to index it.</Empty>;
   else if (tab === "graph") body = <GraphView model={model} sel={sel} setSel={setSel} />;
   else if (tab === "search") body = <SearchView model={model} onOpen={openNode} />;
   else body = null;

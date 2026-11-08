@@ -1,74 +1,86 @@
 # Roadmap
 
 ## Current state
-The repo has already progressed beyond the initial walking skeleton. The active implementation includes:
-
-- a dashboard UI in the web app
-- a FastAPI gateway with code intelligence routes
-- a Python graph/indexing engine for repo analysis
-- Supabase-backed auth and metadata workflows
-- GitHub App installation plumbing
+The repo is beyond a simple scaffold and is currently a working MVP foundation for repository intelligence. The codebase includes a web app, a FastAPI backend, a graph-based repo indexing engine, GitHub App access hooks, and a static quality scanning layer.
 
 ## Milestone 1: repo foundation and structure
 Status: complete
 
 Completed work:
-- web app scaffold and dashboard shell
-- API gateway and route structure
-- code-intelligence package layout
+- Next.js dashboard shell and route structure
+- FastAPI backend and route modules
+- Python-based repo intelligence package layout
 - docs and project guardrails
 
-## Milestone 2: repository indexing and graph extraction
-Status: in progress
+## Milestone 2: repo indexing and graph extraction
+Status: complete in foundation form
 
-Goal:
-- walk a repo and enumerate files
-- extract imports and symbol relationships
-- persist graph data for a repo and return it through the API
+Completed work:
+- repo file walking
+- symbol extraction for JS/TS files
+- import and call-edge extraction
+- persistence of graph nodes and edges
+- graph loading for API responses
 
-The repo already includes the core graph indexing flow and the `code_nodes` / `code_edges` model pattern.
+This is the core repo intelligence foundation.
 
-## Milestone 3: repo intelligence dashboard
-Status: in progress
+## Milestone 3: repo intelligence dashboard and API wiring
+Status: in progress / partially complete
 
-Goal:
-- show repository health and analysis state
-- wire repo metadata to the dashboard
-- expose API-driven graph and findings data in the UI
+Completed work:
+- web dashboard scaffolding
+- repo ownership and user validation
+- API calls for indexing and graph retrieval
+- database-backed repo metadata flow
 
-## Milestone 4: static security and quality checks
-Status: planned
+Remaining work:
+- finalize end-to-end dashboard wiring for all repo states
+- tighten UI handling of scan and graph results
 
-Planned checks may include:
+## Milestone 4: static quality and security checks
+Status: implemented in the service layer
+
+Included checks:
 - Ruff
 - Bandit
 - Gitleaks
+- ESLint
 
-This should remain a static-analysis layer and should never be communicated as a guarantee of safety.
+These checks are exposed through API routes and operate on cloned repos in a controlled environment.
 
-## Milestone 5: GitHub integration cleanup and production hardening
+## Milestone 5: repo chat and guide generation
+Status: implemented in foundation form
+
+Included pieces:
+- repo graph-based agent tooling
+- file and symbol search
+- static repo guide generation via facts and cached sections
+
+This is useful but still not a fully hardened product-grade assistant.
+
+## Milestone 6: production hardening and operations
 Status: planned
 
-Goal:
-- finalize installation and repo linking flows
-- define explicit permission boundaries
-- tighten the environment and secret handling process
+Planned work:
+- final deployment model
+- observability and error handling
+- stronger environment and secret management
+- clearer production limits for repo analysis jobs
 
-## Milestone 6: PR automation and review support
+## Milestone 7: sandbox and verifier automation
+Status: planned / deferred
+
+This is intentionally later. The project should not move into automated repo execution until the safety boundaries and sandbox model are explicit.
+
+## Milestone 8: PR automation and review support
 Status: planned
 
-Goal:
-- pre-flight checks for PRs
-- webhook-based monitoring
-- repo event awareness
-- human approval gates for automation
-
-## Milestone 7: sandbox and verification
-Status: deferred
-
-This stage is intentionally later and should only happen once the static-analysis foundation is stable and the security boundaries are explicit.
+Planned work:
+- PR event awareness
+- review signal summarization
+- human approval gates before automation
 
 ## Notes
-- the roadmap is intentionally scoped to the current repo and implementation state
-- open questions still remain around hosting, billing, and sandbox design
-- multi-language support and full autonomous PR repair remain out of scope for the current milestone set
+- The current repo is a meaningful MVP foundation, not a complete SaaS product.
+- The project still has open questions around hosting, billing, and sandboxing.
+- Multi-language support and broader automation remain intentionally out of scope until the security model is settled.

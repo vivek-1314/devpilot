@@ -20,6 +20,7 @@ Tool = Literal["Ruff", "Bandit", "Gitleaks", "ESLint"]
 
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 REF_RE = re.compile(r"^[A-Za-z0-9_./-]+$")
+PR_REF_RE = re.compile(r"^refs/pull/\d+/head$")
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "env", "dist", "build", "__pycache__", ".next", "site-packages"}
 MAX_FINDINGS = 1000
 SEV_RANK = {"high": 0, "medium": 1, "low": 2}
@@ -67,10 +68,11 @@ def checkout(full_name: str, ref: str | None, depth: int, token: str):
     if ref and (not REF_RE.match(ref) or ref.startswith("-")):
         raise HTTPException(400, "Invalid ref.")
 
+    pr_ref = bool(ref and PR_REF_RE.match(ref))
     basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
     cmd = ["git", "-c", "credential.helper=", "-c", f"http.extraHeader=Authorization: Basic {basic}"]
     cmd += ["-c", "core.hooksPath=/dev/null", "clone", "--quiet", "--depth", str(depth), "--no-tags"]
-    if ref:
+    if ref and not pr_ref:
         cmd += ["--branch", ref]
 
     tmp = tempfile.mkdtemp(prefix="quality-")
@@ -86,6 +88,10 @@ def checkout(full_name: str, ref: str | None, depth: int, token: str):
             raise HTTPException(504, "Cloning the repository timed out.")
         if p.returncode != 0:
             raise HTTPException(404, "Could not clone the repository.")
+        if pr_ref:
+            git = ["git", "-C", str(dest), "-c", "credential.helper=", "-c", f"http.extraHeader=Authorization: Basic {basic}", "-c", "core.hooksPath=/dev/null"]
+            run_cmd(git + ["fetch", "--quiet", "--depth", "1", "origin", ref], timeout=180)
+            run_cmd(git + ["checkout", "--quiet", "FETCH_HEAD"])
         commit = run_cmd(["git", "-C", str(dest), "rev-parse", "HEAD"]).stdout.strip()
         yield dest, commit
     finally:

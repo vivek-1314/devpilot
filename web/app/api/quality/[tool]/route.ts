@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getUserId } from "../../../../lib/session";
+import { getUserId } from "@/lib/session";
 
 // Scans clone repos, so they can be slow. Raise this if your host allows it.
 export const maxDuration = 300;
@@ -28,11 +28,10 @@ export async function POST(req: Request, ctx: Ctx) {
         return NextResponse.json({ detail: "repo_id (integer) is required." }, { status: 422 });
     }
 
-    // after
-    const backend = process.env.CODE_INTEL_API_URL ?? "http://127.0.0.1:8000";
+    const backend = process.env.BACKEND_URL;
     const key = process.env.INTERNAL_API_KEY;
-    if (!key) {
-        return NextResponse.json({ detail: "INTERNAL_API_KEY is not set." }, { status: 500 });
+    if (!backend || !key) {
+        return NextResponse.json({ detail: "Server is not configured." }, { status: 500 });
     }
 
     try {

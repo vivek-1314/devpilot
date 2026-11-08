@@ -1,57 +1,56 @@
 # Security and risk model
 
 ## Threat model
-This project analyzes repositories that may originate from third parties or untrusted sources. The primary risk is not that a repo will be executed on the developer workstation, but that code from an arbitrary repo may contain malicious or unsafe patterns that should be treated as untrusted inputs.
-
-## Security principles
-- never execute untrusted repository code on the host machine
-- prefer static analysis, metadata extraction, and AST-based inspection over runtime execution
-- treat GitHub tokens, app credentials, and repo secrets as sensitive material
-- keep repo access boundaries explicit and user-scoped
-- avoid making blanket claims such as "safe" or "secure" based on a limited set of checks
+This project analyzes GitHub repositories that may come from third parties or untrusted sources. The key risk is not that the host will execute arbitrary repo code, but that untrusted repository content may contain malicious patterns, secrets, or risky code that needs to be treated as hostile input.
 
 ## Current implementation posture
-The current repo uses a static-analysis-first design:
+The repo is built around static analysis and metadata inspection rather than runtime execution:
+- the web app validates the caller before allowing analysis
+- the API enforces the internal key and repo ownership checks
+- the repo indexing pipeline clones repos into a temporary directory and analyzes files without running the host app
+- external static tools such as Ruff, Bandit, Gitleaks, and ESLint run in a throwaway clone
 
-- the web app validates user access before calling backend services
-- the API gateway enforces a shared internal service key
-- the graph/indexing package reads repository contents and metadata without running app code
-- findings are described in terms of specific checks and specific results, not absolute trust
+This is the current security posture and it is intentionally conservative.
+
+## Security principles
+- never execute untrusted repository code on the developer host
+- prefer static analysis and AST-based inspection over dynamic execution
+- treat GitHub tokens, app credentials, and repo secrets as sensitive material
+- enforce repo access checks before indexing or scanning
+- avoid making blanket claims such as "safe" or "secure" based on a limited set of checks
 
 ## Secret handling
-- do not commit `.env` files or secret values into source control
-- do not log tokens, client secrets, app keys, or environment variables
-- keep secret configuration in local env files or a managed secret store
-- prefer provider-managed credentials when a service already supports them
+- never commit `.env` files or secret values into source control
+- never log tokens, GitHub credentials, or environment values
+- keep secret configuration in local shell state or a managed secret store
+- ensure local or deployment configuration does not leak into logs or error output
 
-## GitHub App and repo access
-- GitHub App access should be minimal and scoped to the required repo permissions
-- installation and repo visibility checks must happen before indexing or analysis begins
-- repository reads should be limited to the user or installation that requested the analysis
-- destructive or mutating actions should require explicit approval before execution
+## GitHub App and repository access
+The repo includes GitHub App integration patterns, but the project still expects this to be tightly scoped:
+- installation access must be verified before analysis starts
+- a user must be allowed to access a repo before the repo is indexed
+- repository reads should be limited to the requested installation and user scope
+- any future mutating or automated repository actions should require explicit approval
 
-## Sandbox expectations for later phases
-Future automation that validates or patches repo content should run in an isolated sandbox. The expected model is:
-
-- isolated execution environment
-- restricted host and network access
-- no direct access to developer secrets or production credentials
-- no persistence of untrusted repo state on the host
-
-## Language for findings
-The accepted wording for a repo analysis should be:
-
+## Static checks and honest language
+Findings should be reported as results from specific checks, for example:
 - "No issues found by these checks"
 
-It should not be phrased as:
-
+This wording is preferred over:
 - "Safe"
 - "Secure"
 - "No issues at all"
 
-This keeps the product honest and aligned with the actual scope of the checks being performed.
+The repo explicitly avoids over-claiming because the checks remain limited to static analysis.
+
+## Future safety expectations
+Any future automation that executes or validates repository content should run in an isolated sandbox with:
+- restricted network access
+- no access to developer credentials
+- no persistence of untrusted repo state on the host
+- explicit timeout and resource bounds
 
 ## Open questions
-- final sandbox technology and hardening plan
-- production hosting model and secrets management
-- observability and operational controls for repo analysis
+- final sandbox technology and hardening model
+- production hosting and secret-management approach
+- production-grade observability and operational controls

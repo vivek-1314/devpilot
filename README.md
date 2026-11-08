@@ -1,81 +1,81 @@
 # DevPilot
 
-DevPilot is a repository intelligence platform for GitHub codebases. It helps developers understand repository structure, surface risky or low-quality areas, and prepare pull requests for review with clearer, more actionable signal.
+DevPilot is a GitHub repository intelligence product currently focused on repo structure analysis, static security and quality checks, and repository conversation tools.
 
 ## Current project status
-This repository is not a blank scaffold anymore. It contains the working foundations for the product:
+This repository is no longer a blank scaffold. It currently contains a working MVP foundation for:
 
 - a Next.js dashboard in `web/`
-- a FastAPI gateway in `services/api/`
-- a Python repository-analysis package in `services/code_intelligence/`
-- Supabase integration for authentication, metadata, and repo state
-- GitHub App support for installation and repo access flows
-- a graph-based indexing pipeline for files, imports, and symbol relationships
+- a FastAPI backend in `services/api/`
+- a Python repository analysis package in `services/code_intelligence/`
+- static quality and security scanners in `services/quality/`
+- Supabase-backed metadata and graph persistence
+- GitHub App token integration for repository access
 
-The system is still intentionally narrow and production-oriented. The current focus is on static repository analysis rather than autonomous repository mutation.
+This project is still intentionally narrow and focused on static analysis rather than autonomous mutation or execution.
 
 ## Product scope
-### Core goals
-- analyze a repository and extract file-level structure
+### Current goals
+- analyze a repository and extract file and symbol structure
 - map import and symbol relationships in a graph
-- detect likely technology stack and project intent
+- identify likely code ownership and dependency patterns
 - run static quality and security checks
-- present results in a dashboard for users and repos
+- present repository intelligence through the dashboard
+- support repo-level chat and guide generation from indexed data
 
 ### Current emphasis
 - Python-first repo analysis
 - GitHub-connected workflows
-- static intelligence over dynamic execution
-- secure handling of repo access and secret material
+- static analysis over dynamic execution
+- careful handling of tokens and repo access boundaries
 
 ### Deferred or open areas
-- billing
-- observability
-- worker orchestration
-- broad multi-language support
-- sandbox hardening and autonomous patching
+- billing and usage controls
+- observability and production operations
+- worker orchestration and queueing
+- full sandbox automation
+- broader multi-language support
 
 ## Repository layout
-- `web/` — Next.js app and dashboard UI
-- `services/api/` — FastAPI gateway, auth-facing routes, service integration layer
-- `services/code_intelligence/` — repository graph indexing, AST extraction, and scanning logic
+- `web/` — Next.js frontend and dashboard UI
+- `services/api/` — FastAPI service with repo-scoped routes
+- `services/code_intelligence/` — graph extraction and indexing logic
+- `services/quality/` — static security and lint checks
 - `docs/` — architecture, setup, product, and policy docs
-- `docker-compose.yml` — infrastructure scaffolding
+- `docker-compose.yml` — local infrastructure scaffold
 
 ## Architecture in one sentence
-The web app calls the API gateway, the API asks the code-intelligence service to index a repo, and the analysis results are persisted in Supabase and returned through the dashboard.
+The web app calls the FastAPI backend, the backend checks repo access, and the Python service indexes repository files and returns graph and scan results through the dashboard.
 
 ## Local setup
-See the setup guide in `docs/SETUP.md` for environment variables and the recommended local workflow.
-
-### Quick start summary
-1. install the Python package for repo analysis
-2. start the API gateway
-3. start the web app
-4. configure the required environment variables in local env files
-5. use the dashboard to connect a repo and trigger indexing
+See the setup guide in `docs/SETUP.md` for the current local workflow.
 
 ## Environment and configuration
-The system expects a small set of environment values, including:
+The repo expects a small set of runtime environment values, including:
 
-- `INTERNAL_API_KEY` between the web layer and the API service
-- `CODE_INTEL_API_URL` for the web app to reach the gateway
-- `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `INTERNAL_API_KEY`
+- `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- GitHub App configuration values such as `GITHUB_APP_ID`, `GITHUB_APP_CLIENT_ID`, and the private key path or PEM payload
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `GITHUB_APP_ID`
+- `GITHUB_APP_CLIENT_ID`
+- `GITHUB_APP_PRIVATE_KEY_PATH`
+- additional provider-specific values used by repo scanning or chat features
 
 Do not commit secrets or tokens to the repo. Keep them in local env files or a secure secret store.
 
 ## Security posture
-The project intentionally avoids executing untrusted repository code on the host. The product focuses on static analysis and metadata extraction. Findings should be reported as results from selected checks, not as a blanket claim that a repo is secure.
+The project intentionally avoids executing untrusted repository code on the host. The service clones repos into temporary directories and performs static checks and file inspection instead of running app code.
 
 ## Documentation map
 - `docs/ARCHITECTURE.md` — current system architecture
-- `docs/SETUP.md` — local setup and configuration
+- `docs/SETUP.md` — local setup and configuration notes
+- `docs/PRODUCT.md` — current feature and scope summary
 - `docs/SECURITY.md` — security posture and risk model
-- `docs/ROADMAP.md` — delivery plan and milestone status
+- `docs/ROADMAP.md` — delivery status and future work
 - `docs/DECISIONS.md` — architecture and product decisions
 
 ## Notes
 - The repo currently reflects a working MVP foundation rather than a complete SaaS rollout.
-- Unknown platform and billing decisions remain intentionally open until they are confirmed.
+- The implementation is real, but several production and operational decisions remain open.

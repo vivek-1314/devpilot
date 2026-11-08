@@ -1,22 +1,33 @@
 "use client";
 
-import { Badge, Btn, Card, Empty, PageHeader, Reveal, Segmented, SevBadge, cx } from "../_components/ui";
-import { QualityError, runQualityScan, TOOL_DESC, TOOL_NAMES, type ToolName, type UiFinding } from "../../../lib/quality";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/browser";
-
-type Repo = { id: number; full_name: string };
+import { Badge, Btn, Card, Empty, PageHeader, Reveal, Segmented, SevBadge, cx } from "../_components/ui";
+import {
+  QualityError,
+  fetchRepoState,
+  runQualityScan,
+  saveFindingState,
+  TOOL_DESC,
+  TOOL_NAMES,
+  type FindingStatus,
+  type ToolName,
+  type UiFinding,
+} from "@/lib/quality";
 
 type Filter = "all" | ToolName;
+type Repo = { id: number; full_name: string };
 
 type ToolState = {
   state: "idle" | "running" | "done" | "error";
-  at?: string; // time of last successful run
+  at?: string; // when the saved scan ran
   count?: number;
+  ref?: string | null;
+  source?: string;
   error?: string;
 };
 
-type HistoryItem = { id: string; when: string; repo: string; tool: ToolName; result: string };
+type HistoryItem = { id: string; ts: string; repo: string; tool: ToolName; result: string };
 
 const idle = (): Record<ToolName, ToolState> => ({
   Ruff: { state: "idle" },
@@ -24,77 +35,116 @@ const idle = (): Record<ToolName, ToolState> => ({
   Gitleaks: { state: "idle" },
   ESLint: { state: "idle" },
 });
+const noFindings = (): Record<ToolName, UiFinding[]> => ({ Ruff: [], Bandit: [], Gitleaks: [], ESLint: [] });
 
-const clock = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const stamp = (iso: string) => new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const plural = (n: number) => `${n} ${n === 1 ? "finding" : "findings"}`;
+const SOURCE: Record<string, string> = { manual: "manual", pr: "pull request", push: "push" };
 
 export default function QualitySecurityPage() {
   const [filter, setFilter] = useState<Filter>("all");
-  const [resolved, setResolved] = useState<Set<string>>(new Set());
-  const [findings, setFindings] = useState<Record<ToolName, UiFinding[]>>({ Ruff: [], Bandit: [], Gitleaks: [], ESLint: [] });
+  const [findings, setFindings] = useState(noFindings);
   const [status, setStatus] = useState(idle);
+  const [states, setStates] = useState<Record<string, FindingStatus>>({});
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  // TODO: replace these two inputs with your real repository selector.
   const [repos, setRepos] = useState<Repo[] | null>(null);
   const [reposError, setReposError] = useState<string | null>(null);
   const [repoId, setRepoId] = useState<number | null>(null);
   const [ref, setRef] = useState("");
+  const [loadingSaved, setLoadingSaved] = useState(false);
+  const loadRun = useRef(0);
 
   const repoName = repos?.find((r) => r.id === repoId)?.full_name ?? `Repo ${repoId}`;
+  const anyRunning = TOOL_NAMES.some((t) => status[t].state === "running");
 
+  // Only repos the user switched on are scannable (and count toward the plan limit).
   const loadRepos = useCallback(async () => {
-    // Row-level security returns only the repositories this user may see.
-    const { data, error } = await createClient().from("repositories").select("id, full_name").order("full_name");
+    const { data, error } = await createClient().from("repositories").select("id, full_name").eq("analyze_enabled", true).order("full_name");
     if (error) return setReposError(error.message);
     const list = (data ?? []) as Repo[];
     setRepos(list);
     setRepoId((cur) => cur ?? list[0]?.id ?? null);
   }, []);
-
   useEffect(() => {
-    loadRepos();
+    void loadRepos();
   }, [loadRepos]);
 
-  // Switching repo clears old results so findings from two repos never mix.
+  // Show what we already know about this repo: the last saved scan per tool.
+  useEffect(() => {
+    if (repoId == null) return;
+    const mine = ++loadRun.current;
+    setLoadingSaved(true);
+    setNotice(null);
+    fetchRepoState(repoId)
+      .then(({ scans, states: saved }) => {
+        if (mine !== loadRun.current) return;
+        const f = noFindings();
+        const s = idle();
+        const hist: HistoryItem[] = [];
+        for (const t of TOOL_NAMES) {
+          const sc = scans[t];
+          if (!sc) continue;
+          f[t] = sc.findings;
+          s[t] = { state: "done", at: stamp(sc.at), count: sc.count, ref: sc.ref, source: sc.source };
+          hist.push({ id: `${t}-${sc.at}`, ts: sc.at, repo: repoName, tool: t, result: plural(sc.count) });
+        }
+        hist.sort((a, b) => b.ts.localeCompare(a.ts));
+        setFindings(f);
+        setStatus(s);
+        setStates(saved);
+        setHistory(hist);
+      })
+      .catch((e) => mine === loadRun.current && setNotice(e instanceof QualityError ? e.message : "Could not load saved results."))
+      .finally(() => mine === loadRun.current && setLoadingSaved(false));
+    // repoName only labels history rows; re-running on its change would refetch needlessly
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repoId]);
+
   const changeRepo = (id: number) => {
     setRepoId(id);
-    setFindings({ Ruff: [], Bandit: [], Gitleaks: [], ESLint: [] });
+    setFindings(noFindings());
     setStatus(idle());
-    setResolved(new Set());
+    setStates({});
+    setHistory([]);
   };
-
-  const anyRunning = TOOL_NAMES.some((t) => status[t].state === "running");
 
   const all = TOOL_NAMES.flatMap((t) => findings[t]);
   const list = all.filter((f) => filter === "all" || f.tool === filter);
-  const openCount = all.filter((f) => !resolved.has(f.id)).length;
+  const resolvedCount = all.filter((f) => states[f.fp]).length;
+  const openCount = all.length - resolvedCount;
   const hasRun = TOOL_NAMES.some((t) => status[t].at);
 
-  const toggle = (id: string) =>
-    setResolved((s) => {
-      const n = new Set(s);
-      n.has(id) ? n.delete(id) : n.add(id);
+  const toggle = async (fp: string) => {
+    if (repoId == null) return;
+    const next: "open" | FindingStatus = states[fp] ? "open" : "resolved";
+    const before = states;
+    setStates((s) => {
+      const n = { ...s };
+      if (next === "open") delete n[fp];
+      else n[fp] = "resolved";
       return n;
     });
-
-  const patch = (tool: ToolName, p: ToolState) => setStatus((s) => ({ ...s, [tool]: p }));
+    try {
+      await saveFindingState(repoId, fp, next);
+    } catch {
+      setStates(before);
+      setNotice("Could not save that change. Try again.");
+    }
+  };
 
   const runTool = async (tool: ToolName) => {
-    if (repoId === null || status[tool].state === "running") return;
-    patch(tool, { ...status[tool], state: "running", error: undefined });
-
+    if (repoId == null || status[tool].state === "running") return;
+    setNotice(null);
+    setStatus((s) => ({ ...s, [tool]: { ...s[tool], state: "running", error: undefined } }));
     try {
       const result = await runQualityScan(tool, repoId, ref.trim() || undefined);
+      const now = new Date().toISOString();
       setFindings((f) => ({ ...f, [tool]: result })); // replaces only this tool's findings
-      patch(tool, { state: "done", at: clock(), count: result.length });
+      setStatus((s) => ({ ...s, [tool]: { state: "done", at: stamp(now), count: result.length, ref: ref.trim() || null, source: "manual" } }));
       setHistory((h) => [
-        {
-          id: `${tool}-${Date.now()}`,
-          when: "Just now",
-          repo: `${repoName}${ref.trim() ? ` @ ${ref.trim()}` : ""}`,
-          tool,
-          result: `${result.length} ${result.length === 1 ? "finding" : "findings"}`,
-        },
+        { id: `${tool}-${now}`, ts: now, repo: `${repoName}${ref.trim() ? ` @ ${ref.trim()}` : ""}`, tool, result: plural(result.length) },
         ...h,
       ]);
     } catch (e) {
@@ -125,7 +175,6 @@ export default function QualitySecurityPage() {
       </div>
 
       {/* target */}
-      {/* target */}
       <Reveal delay={60}>
         <div className="flex flex-wrap items-end gap-3">
           <label className="block text-xs text-white/50">
@@ -138,7 +187,7 @@ export default function QualitySecurityPage() {
                 className="w-64 appearance-none rounded-lg border border-[#FF4D1C]/30 bg-[#FF4D1C]/[0.06] py-2 pl-3 pr-9 font-mono text-sm text-white outline-none transition-colors hover:border-[#FF4D1C]/60 focus-visible:border-[#FF4D1C] focus-visible:ring-4 focus-visible:ring-[#FF4D1C]/10 disabled:cursor-not-allowed disabled:opacity-50 [&>option]:bg-[#0a0a0f]"
               >
                 {!repos && <option>Loading repositories</option>}
-                {repos?.length === 0 && <option>No repositories</option>}
+                {repos?.length === 0 && <option>No enabled repositories</option>}
                 {repos?.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.full_name}
@@ -162,8 +211,13 @@ export default function QualitySecurityPage() {
           </label>
 
           {reposError && <p className="pb-2 text-xs text-[#FF7A52]">{reposError}</p>}
-          {repos?.length === 0 && <p className="pb-2 text-xs text-white/40">No repositories are connected to your account yet.</p>}
+          {repos?.length === 0 && <p className="pb-2 text-xs text-white/40">Enable a repository on the Repositories page to scan it.</p>}
         </div>
+        {notice && (
+          <p role="status" className="mt-3 text-xs text-[#FF7A52]">
+            {notice}
+          </p>
+        )}
       </Reveal>
 
       {/* one card per tool, each with its own manual check */}
@@ -180,11 +234,13 @@ export default function QualitySecurityPage() {
                 </div>
 
                 <div aria-live="polite" className="min-h-[2.5rem] text-xs">
-                  {s.state === "idle" && <p className="text-white/40">Not run yet.</p>}
+                  {s.state === "idle" && <p className="text-white/40">{loadingSaved ? "Loading last result…" : "Not run yet."}</p>}
                   {running && <p className="text-[#FF7A52]">Cloning and scanning…</p>}
                   {s.state === "done" && (
                     <p className="text-white/60">
-                      {s.count} {s.count === 1 ? "finding" : "findings"} · checked at {s.at}
+                      {plural(s.count ?? 0)} · {s.at}
+                      {s.ref ? ` · ${s.ref}` : ""}
+                      {s.source && s.source !== "manual" ? ` · ${SOURCE[s.source] ?? s.source}` : ""}
                     </p>
                   )}
                   {s.state === "error" && <p className="text-[#FF7A52]">{s.error}</p>}
@@ -201,13 +257,9 @@ export default function QualitySecurityPage() {
 
       <Reveal delay={140}>
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <Segmented
-            value={filter}
-            onChange={setFilter}
-            options={[{ id: "all", label: "All" }, ...TOOL_NAMES.map((t) => ({ id: t, label: t }))]}
-          />
+          <Segmented value={filter} onChange={setFilter} options={[{ id: "all", label: "All" }, ...TOOL_NAMES.map((t) => ({ id: t, label: t }))]} />
           <p aria-live="polite" className="text-sm text-white/50">
-            <span className="text-[#FF7A52]">{openCount} open</span> · {resolved.size} resolved
+            <span className="text-[#FF7A52]">{openCount} open</span> · {resolvedCount} resolved
           </p>
         </div>
       </Reveal>
@@ -216,13 +268,11 @@ export default function QualitySecurityPage() {
         <Reveal delay={180}>
           <Card className="overflow-hidden">
             {list.length === 0 ? (
-              <Empty>
-                {hasRun ? "No findings from this tool." : "Run a check to see findings here."}
-              </Empty>
+              <Empty>{hasRun ? "No findings from this tool." : "Run a check to see findings here."}</Empty>
             ) : (
               <ul className="divide-y divide-white/[0.06]">
                 {list.map((f) => {
-                  const done = resolved.has(f.id);
+                  const done = !!states[f.fp];
                   return (
                     <li key={f.id} className={cx("dp-fade flex items-center gap-4 px-5 py-4 transition-opacity duration-300", done && "opacity-45")}>
                       <div className="min-w-0 flex-1">
@@ -236,7 +286,7 @@ export default function QualitySecurityPage() {
                         <Badge>{f.tool}</Badge>
                         <SevBadge sev={f.sev} />
                       </div>
-                      <Btn variant="ghost" className="shrink-0 py-1.5" onClick={() => toggle(f.id)}>
+                      <Btn variant="ghost" className="shrink-0 py-1.5" onClick={() => void toggle(f.fp)}>
                         {done ? "Reopen" : "Resolve"}
                       </Btn>
                     </li>
@@ -251,14 +301,14 @@ export default function QualitySecurityPage() {
           <Card className="self-start">
             <h2 className="px-5 pt-5 text-sm font-medium">Scan history</h2>
             {history.length === 0 ? (
-              <Empty>No scans yet in this session.</Empty>
+              <Empty>No scans yet for this repository.</Empty>
             ) : (
               <ul className="mt-3 divide-y divide-white/[0.06]">
                 {history.map((s) => (
                   <li key={s.id} className="dp-fade flex items-center justify-between gap-3 px-5 py-3 text-sm">
                     <div className="min-w-0">
                       <p className="text-white/80">
-                        {s.tool} · {s.when}
+                        {s.tool} · {stamp(s.ts)}
                       </p>
                       <p className="truncate text-xs text-white/40">{s.repo}</p>
                     </div>
