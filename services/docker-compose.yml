@@ -2,6 +2,8 @@ x-pem: &pem
   env_file: .env
   environment:
     - GITHUB_APP_PRIVATE_KEY_PATH=/run/secrets/github-devpilot.pem
+    - CODE_INTELLIGENCE_URL=http://code_intelligence:8001
+    - QUALITY_URL=http://quality:8002
   volumes:
     - ./github-devpilot.pem:/run/secrets/github-devpilot.pem:ro
 
@@ -12,10 +14,10 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "443:443/udp"        # HTTP/3
+      - "443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data     # keeps TLS certs across restarts
+      - caddy_data:/data
       - caddy_config:/config
     depends_on:
       - api
@@ -27,7 +29,7 @@ services:
       dockerfile: services/api/Dockerfile
     restart: unless-stopped
     expose:
-      - "8000"               # internal only, replaces "ports"
+      - "8000"
     depends_on:
       - code_intelligence
       - quality

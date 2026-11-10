@@ -14,6 +14,16 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 PR_ACTIONS = {"opened", "synchronize", "reopened"}
+REPO_CHILD_TABLES = (
+    "code_edges",
+    "code_nodes",
+    "code_files",
+    "repo_docs",
+    "quality_scans",
+    "finding_states",
+    "pull_requests",
+    "findings",
+)
 
 QUALITY_URL = os.environ.get("QUALITY_URL", "http://quality:8002")
 
@@ -56,6 +66,37 @@ def _find_repo(repo_id: int) -> dict | None:
     return rows[0] if rows else None
 
 
+def _delete_repo_data(repo_ids: list[int], installation_id: int | None = None) -> int:
+    if not repo_ids:
+        return 0
+
+    db = get_db()
+    for table in REPO_CHILD_TABLES:
+        db.table(table).delete().in_("repo_id", repo_ids).execute()
+
+    q = db.table("repositories").delete().in_("id", repo_ids)
+    if installation_id is not None:
+        q = q.eq("installation_id", installation_id)
+    q.execute()
+    return len(repo_ids)
+
+
+def _delete_installation_repos(installation_id: int) -> int:
+    rows = (
+        get_db().table("repositories")
+        .select("id")
+        .eq("installation_id", installation_id)
+        .execute()
+        .data
+        or []
+    )
+    repo_ids = [r["id"] for r in rows if isinstance(r.get("id"), int)]
+    deleted = _delete_repo_data(repo_ids, installation_id=installation_id)
+    get_db().table("installation_members").delete().eq("installation_id", installation_id).execute()
+    get_db().table("installations").delete().eq("id", installation_id).execute()
+    return deleted
+
+
 @router.post("/github", status_code=202)
 async def github_webhook(
     request: Request,
@@ -66,12 +107,34 @@ async def github_webhook(
     raw = await request.body()
     _verify(raw, x_hub_signature_256)
 
-    if x_github_event != "pull_request":
-        return {"ok": True, "ignored": x_github_event}
     try:
         payload = json.loads(raw)
     except ValueError:
         raise HTTPException(400, "Bad payload.")
+
+    if x_github_event == "installation_repositories":
+        removed = payload.get("repositories_removed") or []
+        repo_ids = [r.get("id") for r in removed if isinstance(r, dict) and isinstance(r.get("id"), int)]
+        installation_id = ((payload.get("installation") or {}).get("id"))
+        if not repo_ids:
+            return {"ok": True, "ignored": "no_removed_repositories"}
+        deleted = await run_in_threadpool(
+            _delete_repo_data,
+            repo_ids,
+            installation_id if isinstance(installation_id, int) else None,
+        )
+        return {"ok": True, "deleted_repositories": deleted}
+
+    if x_github_event == "installation" and payload.get("action") == "deleted":
+        installation_id = ((payload.get("installation") or {}).get("id"))
+        if not isinstance(installation_id, int):
+            raise HTTPException(400, "Bad payload.")
+        deleted = await run_in_threadpool(_delete_installation_repos, installation_id)
+        return {"ok": True, "deleted_repositories": deleted}
+
+    if x_github_event != "pull_request":
+        return {"ok": True, "ignored": x_github_event}
+
     if payload.get("action") not in PR_ACTIONS:
         return {"ok": True, "ignored": payload.get("action")}
 

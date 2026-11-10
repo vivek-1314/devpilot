@@ -4,6 +4,29 @@ import { getGithubApp } from "@/lib/github/app";
 
 type Account = { id: number; login: string; type: string };
 
+const REPO_CHILD_TABLES = [
+  "code_edges",
+  "code_nodes",
+  "code_files",
+  "repo_docs",
+  "quality_scans",
+  "finding_states",
+  "pull_requests",
+  "findings",
+] as const;
+
+async function deleteRepoData(admin: ReturnType<typeof createAdminClient>, repoIds: number[]) {
+  if (repoIds.length === 0) return;
+
+  for (const table of REPO_CHILD_TABLES) {
+    const { error } = await admin.from(table).delete().in("repo_id", repoIds);
+    if (error) throw error;
+  }
+
+  const { error: repoDeleteErr } = await admin.from("repositories").delete().in("id", repoIds);
+  if (repoDeleteErr) throw repoDeleteErr;
+}
+
 export async function syncInstallation(opts: {
   installationId: number;
   userId: string;
@@ -34,6 +57,19 @@ export async function syncInstallation(opts: {
     per_page: 100,
   });
 
+  const { data: existingRepos, error: existingErr } = await admin
+    .from("repositories")
+    .select("id")
+    .eq("installation_id", installationId);
+  if (existingErr) throw existingErr;
+
+  const allowedRepoIds = new Set(repos.map((r) => r.id));
+  const removedRepoIds = (existingRepos ?? [])
+    .map((r) => r.id)
+    .filter((id) => !allowedRepoIds.has(id));
+
+  await deleteRepoData(admin, removedRepoIds);
+
   // 4. Save the repos
   if (repos.length > 0) {
     const { error: repoErr } = await admin.from("repositories").upsert(
@@ -54,7 +90,7 @@ export async function syncInstallation(opts: {
   await admin.from("events").insert({
     installation_id: installationId,
     type: "repos_synced",
-    payload: { count: repos.length },
+    payload: { count: repos.length, removed: removedRepoIds.length },
   });
 
   return repos.length;
