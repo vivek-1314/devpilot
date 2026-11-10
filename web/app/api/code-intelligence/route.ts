@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 
 export const maxDuration = 300;
 
-const API_URL = process.env.CODE_INTEL_API_URL ?? "http://127.0.0.1:8000";
+const API_URL = process.env.BACKEND_URL ?? "http://127.0.0.1:8000";
 const KEY = process.env.INTERNAL_API_KEY ?? "";
 
 class HttpError extends Error {
