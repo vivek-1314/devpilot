@@ -98,7 +98,6 @@ export default function BootLoader({
   useIsoLayoutEffect(() => {
     if (hasSeen(storageKey)) {
       skippedRef.current = true;
-      markSeen(storageKey);
       setPhase("gone");
       onCompleteRef.current?.();
     }
@@ -144,6 +143,7 @@ export default function BootLoader({
     if (phase === "ready") id = window.setTimeout(() => setPhase("exit"), 750);
     if (phase === "exit")
       id = window.setTimeout(() => {
+        markSeen(storageKey); 
         setPhase("gone");
         onCompleteRef.current?.();
       }, 1000);
