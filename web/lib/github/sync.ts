@@ -1,6 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { githubApp } from "@/lib/github/app";
+import { getGithubApp } from "@/lib/github/app";
 
 type Account = { id: number; login: string; type: string };
 
@@ -28,6 +28,7 @@ export async function syncInstallation(opts: {
   if (memErr) throw memErr;
 
   // 3. Ask GitHub which repos we can read
+  const githubApp = getGithubApp();
   const octokit = await githubApp.getInstallationOctokit(installationId);
   const repos = await octokit.paginate("GET /installation/repositories", {
     per_page: 100,

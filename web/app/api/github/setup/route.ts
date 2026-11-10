@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Octokit } from "octokit";
 import { createClient } from "@/lib/supabase/server";
-import { githubApp } from "@/lib/github/app";
+import { getGithubApp } from "@/lib/github/app";
 import { syncInstallation } from "@/lib/github/sync";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -22,6 +22,8 @@ export async function GET(request: Request) {
   if (!user) return NextResponse.redirect(`${origin}/`);
 
   try {
+    const githubApp = getGithubApp();
+
     // Trade the code for the GitHub user's token
     const { authentication } = await githubApp.oauth.createToken({ code });
     const userOctokit = new Octokit({ auth: authentication.token });
@@ -41,7 +43,7 @@ export async function GET(request: Request) {
       type: string;
     };
 
-// Make sure the profile row exists before linking the installation
+    // Make sure the profile row exists before linking the installation
     const admin = createAdminClient();
     await admin.from("profiles").upsert({
       id: user.id,
