@@ -5,6 +5,8 @@ import { getGithubApp } from "@/lib/github/app";
 import { syncInstallation } from "@/lib/github/sync";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
