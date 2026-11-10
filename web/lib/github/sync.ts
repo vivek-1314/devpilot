@@ -7,7 +7,6 @@ type Account = { id: number; login: string; type: string };
 const REPO_CHILD_TABLES = [
   "code_edges",
   "code_nodes",
-  "code_files",
   "repo_docs",
   "quality_scans",
   "finding_states",
