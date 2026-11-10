@@ -1,56 +1,54 @@
-# Security and risk model
+# Security
 
-## Threat model
-This project analyzes GitHub repositories that may come from third parties or untrusted sources. The key risk is not that the host will execute arbitrary repo code, but that untrusted repository content may contain malicious patterns, secrets, or risky code that needs to be treated as hostile input.
+## Security objective
+Protect user data, GitHub credentials, and repository confidentiality while running only controlled static analysis workflows.
 
-## Current implementation posture
-The repo is built around static analysis and metadata inspection rather than runtime execution:
-- the web app validates the caller before allowing analysis
-- the API enforces the internal key and repo ownership checks
-- the repo indexing pipeline clones repos into a temporary directory and analyzes files without running the host app
-- external static tools such as Ruff, Bandit, Gitleaks, and ESLint run in a throwaway clone
+## Current security posture
+DevPilot currently follows a static-analysis-first model:
+- user and repo-scoped access checks are enforced before analysis routes
+- repository content is cloned to temporary working locations for analysis
+- scanners run on repository files, not by executing repository applications
+- tokens and secrets are expected through environment configuration
 
-This is the current security posture and it is intentionally conservative.
+This is appropriate for an MVP and reduces major early-stage risk.
 
-## Security principles
-- never execute untrusted repository code on the developer host
-- prefer static analysis and AST-based inspection over dynamic execution
-- treat GitHub tokens, app credentials, and repo secrets as sensitive material
-- enforce repo access checks before indexing or scanning
-- avoid making blanket claims such as "safe" or "secure" based on a limited set of checks
+## Key controls in current design
+### Access control
+- API requests include internal auth validation and user context checks
+- repository ownership/installation checks gate scan and indexing operations
 
-## Secret handling
-- never commit `.env` files or secret values into source control
-- never log tokens, GitHub credentials, or environment values
-- keep secret configuration in local shell state or a managed secret store
-- ensure local or deployment configuration does not leak into logs or error output
+### Secret handling
+- GitHub App credentials and API keys are treated as sensitive
+- secrets should never be hardcoded or committed
+- logs should avoid token or credential leakage
 
-## GitHub App and repository access
-The repo includes GitHub App integration patterns, but the project still expects this to be tightly scoped:
-- installation access must be verified before analysis starts
-- a user must be allowed to access a repo before the repo is indexed
-- repository reads should be limited to the requested installation and user scope
-- any future mutating or automated repository actions should require explicit approval
+### Analysis boundaries
+- prefer static parsing and tool-based scanning
+- do not run untrusted repository runtime code on host machine
+- keep analysis temporary and scoped to explicit user requests
 
-## Static checks and honest language
-Findings should be reported as results from specific checks, for example:
-- "No issues found by these checks"
+## Docker and isolation view
+Current local architecture uses Docker-based service separation. This provides basic process isolation between API, quality, and code-intelligence modules.
 
-This wording is preferred over:
-- "Safe"
-- "Secure"
-- "No issues at all"
+For future SaaS hardening, isolation should be expanded with:
+- locked-down container permissions
+- resource limits (CPU/memory/time)
+- restricted egress where possible
+- short-lived workspaces for repo analysis
 
-The repo explicitly avoids over-claiming because the checks remain limited to static analysis.
+## Security reporting language
+Use precise language in outputs:
+- preferred: "No issues found by these checks."
+- avoid: "This repository is secure."
 
-## Future safety expectations
-Any future automation that executes or validates repository content should run in an isolated sandbox with:
-- restricted network access
-- no access to developer credentials
-- no persistence of untrusted repo state on the host
-- explicit timeout and resource bounds
+Reason: scanner coverage is limited and should not be presented as absolute assurance.
 
-## Open questions
-- final sandbox technology and hardening model
-- production hosting and secret-management approach
-- production-grade observability and operational controls
+## Security roadmap (next practical steps)
+1. Centralize config validation for all security-sensitive env vars.
+2. Add audit-safe logging rules (mask tokens, redact secrets).
+3. Add stricter request rate and usage limits per user/repository.
+4. Introduce hardened sandbox execution boundaries for future advanced analysis.
+5. Add security-focused tests for access-control paths.
+
+## Risk status for a college MVP
+The current setup is solid for a student-built MVP and demonstrates good security thinking. The next level is hardening and operational guardrails for production SaaS scale.

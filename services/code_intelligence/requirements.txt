@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+pydantic
+httpx
+PyJWT
+cryptography
+tree-sitter
+tree-sitter-typescript
+langchain-core
+langchain-groq
+langgraph
+supabase

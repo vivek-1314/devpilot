@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+httpx
+python-dotenv
+pyjwt[crypto]
+supabase
+pyyaml
+PyGithub
+psycopg2-binary

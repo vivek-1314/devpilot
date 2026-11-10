@@ -11,7 +11,7 @@ from fastapi.concurrency import run_in_threadpool
 from postgrest.exceptions import APIError
 
 from services.api.access import DEFAULT_LIMIT, PLAN_LIMITS, RepoAccess, owned_repo
-from services.db import get_db
+from services.common.db import get_db
 
 router = APIRouter(prefix="/repos", tags=["repos"])
 

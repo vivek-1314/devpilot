@@ -25,7 +25,7 @@ from pathlib import Path
 import httpx
 from langchain_groq import ChatGroq
 
-from services.db import get_db, reset_db
+from services.common.db import get_db, reset_db
 
 logger = logging.getLogger("devpilot.docs")
 

@@ -16,7 +16,7 @@ from langchain_groq import ChatGroq
 from langgraph.errors import GraphRecursionError
 from langgraph.prebuilt import create_react_agent
 
-from services.db import get_db
+from services.common.db import get_db
 
 logger = logging.getLogger("devpilot.chat")
 

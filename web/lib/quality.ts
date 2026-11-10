@@ -56,7 +56,7 @@ function friendly(status: number, detail?: string): string {
   if (status === 401) return "You are signed out. Sign in again and retry.";
   if (status === 403) return detail || "This repository isn't enabled yet.";
   if (status === 404) return "Repository not found, or you don't have access to it.";
-  if (status === 422) return "Pick a repository first.";
+  if (status === 422) return "Pick a repository first. or the repo should have py files for ruff and bandit check";
   if (status === 502 || status === 504) return detail || "The service did not respond. Try again.";
   return detail || "The request failed. Try again.";
 }

@@ -11,7 +11,7 @@ from fastapi import Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 
 from services.api.security import current_user_id
-from services.db import get_db  # adjust the import if db.py lives elsewhere
+from services.common.db import get_db  # adjust the import if db.py lives elsewhere
 
 # Keep in sync with the CASE in enforce_repo_limit() (migration 001).
 PLAN_LIMITS = {"free": 2}

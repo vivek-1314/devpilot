@@ -7,13 +7,34 @@ import os
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 
-from services.db import get_db
-from services.quality.pr import scan_pr
+from services.common.db import get_db
+import httpx
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 PR_ACTIONS = {"opened", "synchronize", "reopened"}
+
+QUALITY_URL = os.environ.get("QUALITY_URL", "http://quality:8002")
+
+
+async def _send_pr(repo: dict, number: int, sha: str) -> None:
+    """Hand the PR scan to the quality container. A failure is logged, never raised."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(
+                f"{QUALITY_URL}/quality/pr",
+                json={
+                    "repo_id": repo["id"],
+                    "full_name": repo["full_name"],
+                    "installation_id": repo["installation_id"],
+                    "number": number,
+                    "sha": sha,
+                },
+            )
+            r.raise_for_status()
+    except Exception:
+        log.exception("could not queue PR scan for repo %s", repo["id"])
 
 
 def _verify(raw: bytes, sig: str | None) -> None:
@@ -65,5 +86,5 @@ async def github_webhook(
     if not repo or not repo["analyze_enabled"]:
         return {"ok": True, "skipped": "not enabled"}
 
-    bg.add_task(scan_pr, repo["id"], repo["full_name"], repo["installation_id"], number, sha)
+    bg.add_task(_send_pr, repo, number, sha)
     return {"ok": True, "queued": True}

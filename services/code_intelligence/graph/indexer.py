@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-from services.db import get_db
+from services.common.db import get_db
 from services.code_intelligence.graph.extractor import extract_symbols
 from services.code_intelligence.graph.imports import ImportEdge, extract_imports
 from services.code_intelligence.graph.walker import walk_repo

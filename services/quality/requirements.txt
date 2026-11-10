@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pydantic
+httpx
+PyJWT
+cryptography
+supabase
+ruff
+bandit

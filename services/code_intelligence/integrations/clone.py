@@ -5,8 +5,7 @@ import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from services.code_intelligence.integrations.github import get_installation_token
-
+from services.common.github import get_installation_token
 
 async def _run(*args: str, cwd: str | None = None, timeout: int = 120) -> str:
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "/bin/true"}

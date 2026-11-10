@@ -4,7 +4,7 @@ import time
 
 import httpx
 
-from services.db import get_db, reset_db
+from services.common.db import get_db, reset_db
 from services.code_intelligence.graph.docs import (
     collect_facts,
     generate_and_save_docs

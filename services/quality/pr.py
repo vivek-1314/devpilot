@@ -3,8 +3,8 @@ import logging
 from fastapi import HTTPException
 from fastapi.concurrency import run_in_threadpool
 
-from services.api.routes.quality_route import _SLOTS, _save
-from services.code_intelligence.integrations.github import get_installation_token
+from services.quality.store import _SLOTS, _save
+from services.common.github import get_installation_token
 from services.quality import scan_bandit, scan_eslint, scan_gitleaks, scan_ruff
 
 log = logging.getLogger(__name__)

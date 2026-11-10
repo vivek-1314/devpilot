@@ -1,52 +1,60 @@
-# Product overview
+# Product
 
-## Product vision
-DevPilot is a repository intelligence product for GitHub-based codebases. Its current purpose is to help a user understand what a repository is doing, how its files and symbols are connected, and where likely quality or security issues appear before review.
+## One-line product definition
+DevPilot is a GitHub repository intelligence SaaS that helps teams understand codebases faster and catch quality/security issues before pull request merge.
 
-## Primary users
-- developers who need faster repository context
-- engineering teams reviewing multiple repositories
-- maintainers trying to understand a codebase without reading everything manually
-- reviewers who want static repo signal before approval
+## Use case as a business study
+### Problem
+Engineering teams lose time during review because:
+- codebase context is fragmented
+- ownership and file relationships are unclear
+- security/quality checks are not always centralized early
 
-## Current product scope
-The project is intentionally narrow and practical. The implementation currently focuses on:
-- repository indexing and graph extraction
-- file, symbol, and import visibility
-- GitHub repo connection and installation flow
-- static quality and security scanning
-- repo-level chat and repository guide generation
+### Target users
+- solo developers maintaining multiple repos
+- startup teams with fast release cycles
+- engineering managers who want repository health signals
+- reviewers who need faster technical context before approval
 
-## Problems the repo is trying to solve
-- repo structure is hard to understand without reading a large number of files
-- dependency and import relationships are not obvious in large repos
-- stack and project intent are often inferred manually
-- security and quality issues can be missed during quick review
-- repository context is useful before a PR is approved or merged
+### Value proposition
+DevPilot combines repository structure intelligence and scanner outputs in one workflow:
+- graph-style code understanding
+- static quality/security checks
+- repository-level AI support for navigation and explanation
 
-## Current implementation state
-The codebase already includes:
-- a Next.js dashboard shell
-- a FastAPI backend with repo-scoped routes
-- a Python indexing and graph pipeline
-- repository access checks tied to user + installation ownership
-- GitHub App token retrieval for repo access
-- static scanners for Ruff, Bandit, Gitleaks, and ESLint
-- a repo chat agent built on graph metadata
+This reduces review friction and increases confidence in decision-making.
 
-This means the project has moved beyond planning into a working MVP foundation.
+## Current product scope (what exists now)
+- GitHub App based repository connection flow
+- repository indexing and graph extraction pipeline
+- static scanning (Ruff, Bandit, Gitleaks, ESLint)
+- dashboard pages for repository and analysis workflows
+- API and access control for repo-scoped actions
 
-## Product principles
-- keep analysis static and safe by default
-- keep the initial scope small and reviewable
-- do not claim absolute safety from a limited number of checks
-- make repo access and permissions explicit
-- favor evidence-based repo intelligence over speculation
+## SaaS direction and future
+### SaaS model direction
+- multi-tenant workspace model
+- per-user and per-repository usage limits
+- team plans based on scan/index volume
 
-## Scope boundaries
-The current implementation does not yet include:
-- full PR automation
-- sandbox execution for untrusted repos
-- final production hosting and billing decisions
-- large-scale multi-language expansion
-- broad observability and operations tooling
+### Product moat (defensible advantage)
+- repository graph context + scanner data in one product
+- workflow integration with GitHub installation permissions
+- faster onboarding to unknown repositories using generated repo intelligence
+- long-term opportunity to build historical quality trends and PR risk scoring
+
+### Future opportunities
+- pull request assistant with risk summary
+- compliance-oriented policy packs (security baseline checks)
+- deeper code ownership and knowledge graph analytics
+- org-wide quality posture dashboard
+
+## Tech stack (brief)
+- frontend: Next.js + TypeScript + Tailwind
+- backend API: FastAPI
+- analysis services: Python
+- data: Supabase/PostgreSQL
+- local deployment: Docker Compose
+
+## Current stage
+This is an MVP with real working parts and a clear SaaS direction. For a solo college project, the scope and execution are strong.

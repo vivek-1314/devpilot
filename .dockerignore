@@ -1,0 +1,14 @@
+**/venv
+**/.venv
+**/__pycache__
+**/*.pyc
+.git
+.env
+**/.env
+web
+**/node_modules
+**/*.pem
+cloudflared*
+*.deb
+docs
+test_leaks.py
