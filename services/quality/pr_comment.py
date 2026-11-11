@@ -1,4 +1,4 @@
-"""DevPilot PR comment: pick the important findings and post ONE comment per PR.
+"""DevPilot PR comment: list the findings in files changed by a PR and post ONE comment per PR.
 
 Usage (at the end of your /quality/pr handler, after scans finish and are saved):
 
@@ -6,12 +6,13 @@ Usage (at the end of your /quality/pr handler, after scans finish and are saved)
         token=installation_token,          # GitHub App installation access token
         full_name="vivek-1314/devpilot",
         number=2,
-        findings=all_findings,             # flat list of finding dicts from all 4 tools
-        report_url="https://your-dashboard/repos/123/pr/2",
+        findings=all_findings,             # flat list of findings from all tools
+        report_url="",                     # unused, kept so existing callers don't break
         dismissed_ids=dismissed_ids,       # optional: ids the user already dismissed
+        sha=sha,
     )
 
-Each finding dict is expected to look like:
+Each finding is expected to look like:
     {"id", "tool", "sev", "file", "line", "rule", "msg"}
 """
 import logging
@@ -22,10 +23,9 @@ log = logging.getLogger(__name__)
 
 API = "https://api.github.com"
 MARKER = "<!-- devpilot-pr-review -->"  # lets us find our own comment and update it
-MAX_SHOWN = 10                          # never list more than this on the PR
+MAX_SHOWN = 15                          # never list more than this on the PR
 
 SEV_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-TOOL_RANK = {"Gitleaks": 0, "Bandit": 1, "Ruff": 2, "ESLint": 3}
 
 # Bandit rules that fire on almost every project that runs subprocesses/asserts.
 NOISY_RULES = {"B404", "B603", "B607", "B101"}
@@ -35,13 +35,14 @@ LINT_MUST_SHOW = {"F821", "F811", "E999", "E902", "no-undef", "no-unreachable"}
 
 
 def _is_important(f: dict) -> bool:
-    tool, rule, sev = f.get("tool"), f.get("rule"), (f.get("sev") or "").lower()
+    tool = (f.get("tool") or "").lower()
+    rule, sev = f.get("rule"), (f.get("sev") or "").lower()
 
-    if tool == "Gitleaks":
+    if tool == "gitleaks":
         return True  # a secret is always worth showing
     if rule in NOISY_RULES:
         return False
-    if tool == "Bandit":
+    if tool == "bandit":
         return sev in ("critical", "high", "medium")
     # Ruff / ESLint: only high severity or rules that usually indicate real bugs
     return sev in ("critical", "high") or rule in LINT_MUST_SHOW
@@ -63,23 +64,23 @@ def _to_dict(f) -> dict:
 
 
 def select_important(findings, changed_files, dismissed_ids=()):
-    """Return (important_sorted, hidden_count) for findings in files this PR changed."""
+    """Return (findings_in_changed_files, 0). Important ones are sorted first."""
     findings = [_to_dict(f) for f in findings]
     dismissed = set(dismissed_ids)
     in_pr = [
         f for f in findings
         if f.get("file") in changed_files and f.get("id") not in dismissed
     ]
-    important = [f for f in in_pr if _is_important(f)]
-    important.sort(
+    in_pr.sort(
         key=lambda f: (
+            0 if _is_important(f) else 1,
             SEV_RANK.get((f.get("sev") or "").lower(), 9),
-            TOOL_RANK.get(f.get("tool"), 9),
+            (f.get("tool") or "").lower(),
             f.get("file") or "",
             f.get("line") or 0,
         )
     )
-    return important, len(in_pr) - len(important)
+    return in_pr, 0
 
 
 def _cell(text: str, limit: int = 110) -> str:
@@ -87,38 +88,32 @@ def _cell(text: str, limit: int = 110) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def build_comment(important, hidden, report_url, sha=None):
+def build_comment(findings, hidden=0, report_url="", sha=None):
     lines = [MARKER, "### DevPilot review", ""]
 
-    if not important:
-        lines.append("No important issues found in the files changed by this PR.")
+    if not findings:
+        lines.append("No issues found in the files changed by this PR.")
     else:
         counts = {}
-        for f in important:
+        for f in findings:
             s = (f.get("sev") or "low").lower()
             counts[s] = counts.get(s, 0) + 1
         summary = " · ".join(
             f"{counts[s]} {s}" for s in ("critical", "high", "medium", "low") if s in counts
         )
-        lines += [f"**{len(important)} important finding(s):** {summary}", ""]
+        lines += [f"**{len(findings)} finding(s):** {summary}", ""]
         lines += ["| Severity | Tool | Location | Issue |", "|---|---|---|---|"]
-        for f in important[:MAX_SHOWN]:
+        for f in findings[:MAX_SHOWN]:
             loc = f"`{f.get('file')}:{f.get('line')}`"
             lines.append(
                 f"| {f.get('sev')} | {f.get('tool')} | {loc} | "
                 f"{_cell(f.get('msg'))} (`{f.get('rule')}`) |"
             )
-        if len(important) > MAX_SHOWN:
-            lines.append("")
-            lines.append(f"…and {len(important) - MAX_SHOWN} more in the full report.")
+        if len(findings) > MAX_SHOWN:
+            lines += ["", f"…and {len(findings) - MAX_SHOWN} more."]
 
-    if hidden:
-        lines += ["", f"{hidden} lower-priority finding(s) in changed files are hidden."]
-
-    if report_url:
-        lines += ["", f"[View full report]({report_url})"]
     if sha:
-        lines.append(f"<sub>Scanned commit {sha[:7]}</sub>")
+        lines += ["", f"<sub>Scanned commit {sha[:7]}</sub>"]
     return "\n".join(lines)
 
 
@@ -156,7 +151,7 @@ async def _existing_comment_id(client, headers, full_name, number):
         page += 1
 
 
-async def post_pr_review(token, full_name, number, findings, report_url,
+async def post_pr_review(token, full_name, number, findings, report_url="",
                          dismissed_ids=(), sha=None) -> None:
     """Post (or update) the DevPilot comment on a PR. Failures are logged, never raised."""
     headers = {
@@ -167,12 +162,12 @@ async def post_pr_review(token, full_name, number, findings, report_url,
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             changed = await _changed_files(client, headers, full_name, number)
-            important, hidden = select_important(findings, changed, dismissed_ids)
+            in_pr, hidden = select_important(findings, changed, dismissed_ids)
             log.info(
-                "PR comment %s#%s: %d findings total, %d changed files, %d important, %d hidden",
-                full_name, number, len(findings), len(changed), len(important), hidden,
+                "PR comment %s#%s: %d findings total, %d changed files, %d shown",
+                full_name, number, len(findings), len(changed), len(in_pr),
             )
-            body = build_comment(important, hidden, report_url, sha)
+            body = build_comment(in_pr, hidden, report_url, sha)
 
             existing = await _existing_comment_id(client, headers, full_name, number)
             if existing:
