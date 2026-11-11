@@ -13,7 +13,7 @@ from services.api.routes.webhooks_route import router as webhooks_router
 app = FastAPI(title="DevPilot API")
 
 
-@app.get("/health")
+@app.get("/healthh")
 def health():
     return {"ok": True}
 
