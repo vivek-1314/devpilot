@@ -18,6 +18,7 @@ def health():
     return {"ok": True}
 
 
+
 app.include_router(code_intelligence_router)
 app.include_router(quality_router)
 app.include_router(repos_route_router)
